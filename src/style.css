@@ -838,3 +838,202 @@ footer {
   font-size: 13px;
   margin-top: 6px;
 }
+
+/* Repair orders share the existing navy workspace. */
+.repair-workspace {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.7fr) minmax(0, 1.5fr);
+  gap: 22px;
+  align-items: start;
+}
+.repair-workspace > * {
+  min-width: 0;
+}
+.repair-workspace .formgrid {
+  margin-top: 12px;
+}
+.repair-order-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  max-height: 900px;
+  overflow-y: auto;
+}
+.repair-order-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: 8px;
+  padding: 16px;
+  width: 100%;
+  background: var(--input);
+}
+.repair-order-card.selected {
+  border-color: #8b9cf0;
+  background: #1b2947;
+}
+.repair-order-card span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.repair-order-card strong {
+  font-size: 13px;
+  color: var(--accent);
+}
+.repair-totals {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+.repair-totals > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--input);
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+.repair-totals span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.repair-totals strong {
+  font-size: 21px;
+  font-variant-numeric: tabular-nums;
+}
+.repair-detail form {
+  padding: 12px 0;
+}
+.repair-detail .sectionhead {
+  align-items: flex-start;
+}
+.repair-detail .sectionhead .field {
+  width: 170px;
+  flex-shrink: 0;
+}
+.repair-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 15px 0;
+  border-bottom: 1px solid var(--border);
+}
+.repair-line p {
+  margin: 5px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.repair-tabs {
+  margin-bottom: 8px;
+}
+.repair-stats {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+.repair-stats strong {
+  font-size: 25px;
+}
+.report-filters {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.chart-legend {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.chart-legend span {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+.chart-legend i {
+  width: 12px;
+  height: 12px;
+  display: inline-block;
+  border-radius: 3px;
+}
+.chart-income {
+  background: #819aff;
+}
+.chart-expense {
+  background: #efb46b;
+}
+.chart-profit {
+  background: #72d3ab;
+}
+.repair-chart-scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+.repair-chart {
+  display: block;
+  width: 100%;
+  min-width: 560px;
+}
+.repair-chart g[role="button"] {
+  cursor: pointer;
+}
+.repair-chart g[role="button"]:focus {
+  outline: 2px solid var(--accent);
+}
+.repair-period-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.repair-period-list article {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border);
+  padding: 15px;
+  border-radius: 10px;
+  background: var(--input);
+  font-size: 13px;
+}
+.repair-period-list span {
+  color: var(--muted);
+}
+@media (max-width: 1100px) {
+  .repair-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .repair-order-list {
+    max-height: 420px;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  }
+  .report-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px) {
+  .repair-workspace {
+    gap: 0;
+  }
+  .repair-order-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .repair-totals {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .report-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .repair-detail .sectionhead .field {
+    width: 100%;
+  }
+  .repair-stats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .repair-totals strong {
+    font-size: 24px;
+  }
+}

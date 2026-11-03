@@ -6,6 +6,9 @@ import Prices from "./components/Prices.jsx";
 import Inventory from "./components/Inventory.jsx";
 import Settings from "./components/Settings.jsx";
 import GuideImport from "./components/GuideImport.jsx";
+import Repairs from "./components/Repairs.jsx";
+import RepairReport from "./components/RepairReport.jsx";
+import { ensureRepairState } from "./domain/repairs.js";
 import { readState, KEY, analytics, validateState } from "./domain/storage.js";
 import { money } from "./domain/valuation.js";
 import { Download } from "./components/Fields.jsx";
@@ -32,7 +35,8 @@ export function App() {
   });
   const [state, setState] = useState(initial.state),
     [tab, setTab] = useState("valuator"),
-    [message, setMessage] = useState("");
+    [message, setMessage] = useState(""),
+    [analyticsView, setAnalyticsView] = useState("repairs");
   const current = useRef(state);
   function commit(fn) {
     const previous = current.current;
@@ -41,7 +45,7 @@ export function App() {
       throw new Error(
         "Данные изменены в другой вкладке. Перезагрузите страницу перед сохранением.",
       );
-    const next = validateState(fn(previous));
+    const next = ensureRepairState(validateState(fn(previous)));
     localStorage.setItem(KEY + "-before-write", JSON.stringify(previous));
     localStorage.setItem(KEY, JSON.stringify(next));
     current.current = next;
@@ -134,6 +138,7 @@ export function App() {
     ["prices", "Прайс и источники"],
     ["stock", "Склад"],
     ["sales", "Продажи"],
+    ["repairs", "Ремонты"],
     ["analytics", "Аналитика"],
     ["settings", "Настройки"],
   ];
@@ -207,38 +212,60 @@ export function App() {
         {tab === "stock" && <Inventory {...props} />}
         {tab === "sales" && <Inventory {...props} sales />}
         {tab === "settings" && <Settings {...props} />}
+        {tab === "repairs" && <Repairs {...props} />}
         {tab === "analytics" && (
           <>
-            <div className="stats">
-              {[
-                ["Остаток", totals.stock + " устройств"],
-                ["Вложено", money(totals.invested)],
-                ["Ожидаемая разница до расходов", money(totals.expected)],
-                ["Фактическая выручка", money(totals.revenue)],
-                ["Результат после прямых расходов", money(totals.profit)],
-              ].map(([t, v]) => (
-                <article key={t}>
-                  <span>{t}</span>
-                  <strong>{v}</strong>
-                </article>
-              ))}
+            <div className="actions wrap repair-tabs">
+              <button
+                className={analyticsView === "repairs" ? "primary" : ""}
+                onClick={() => setAnalyticsView("repairs")}
+              >
+                Ремонты за период
+              </button>
+              <button
+                className={analyticsView === "trade" ? "primary" : ""}
+                onClick={() => setAnalyticsView("trade")}
+              >
+                Склад и продажи
+              </button>
             </div>
-            <section className="panel">
-              <p>
-                Подтверждённых продаж: {totals.sold}. Старые записи со статусом
-                «Продан» без фактических сумм исключены. Налоги и общие расходы
-                не учтены. Рабочий склад не заполняется демоданными.
-              </p>
-              <h2>Сохранённые оценки ({state.assessments.length})</h2>
-              {state.assessments.map((x) => (
-                <details key={x.id}>
-                  <summary>
-                    {x.input.model} · {x.at} · {money(x.showcase)}
-                  </summary>
-                  <pre>{JSON.stringify(x, null, 2)}</pre>
-                </details>
-              ))}
-            </section>
+            {analyticsView === "repairs" ? (
+              <RepairReport state={state} />
+            ) : (
+              <>
+                <div className="stats">
+                  {[
+                    ["Остаток", totals.stock + " устройств"],
+                    ["Вложено", money(totals.invested)],
+                    ["Ожидаемая разница до расходов", money(totals.expected)],
+                    ["Фактическая выручка", money(totals.revenue)],
+                    ["Результат после прямых расходов", money(totals.profit)],
+                  ].map(([t, v]) => (
+                    <article key={t}>
+                      <span>{t}</span>
+                      <strong>{v}</strong>
+                    </article>
+                  ))}
+                </div>
+                <section className="panel">
+                  <p>
+                    Подтверждённых продаж: {totals.sold}. Старые записи со
+                    статусом «Продан» без фактических сумм исключены. Налоги и
+                    общие расходы не учтены. Рабочий склад не заполняется
+                    демоданными.
+                  </p>
+                  <h2>Сохранённые оценки ({state.assessments.length})</h2>
+                  {state.assessments.map((x) => (
+                    <details key={x.id}>
+                      <summary>
+                        {x.input.model} · {x.at} · {money(x.showcase)}
+                      </summary>
+                      <pre>{JSON.stringify(x, null, 2)}</pre>
+                    </details>
+                  ))}
+                </section>
+              </>
+            )}
           </>
         )}
         <footer>

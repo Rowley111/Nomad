@@ -175,6 +175,8 @@ export function mergePrices(state, rows) {
   return { ...state, prices, priceHistory: history };
 }
 export function safeCell(v) {
+  // Calculated numeric amounts, including losses, remain numbers in Excel.
+  if (typeof v === "number" && Number.isFinite(v)) return '"' + String(v) + '"';
   const s = String(v ?? "");
   return (
     '"' +

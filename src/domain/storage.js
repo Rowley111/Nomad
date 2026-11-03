@@ -1,3 +1,8 @@
+import {
+  repairDefaults,
+  ensureRepairState,
+  validateRepairState,
+} from "./repairs.js";
 import { amount } from "./valuation.js";
 import { catalogDefaults } from "./catalog.js";
 import { policyDefaults } from "./valuation.js";
@@ -6,6 +11,7 @@ export const LEGACY = "nomad-inventory-v1";
 export const uid = () => globalThis.crypto.randomUUID();
 export function emptyState() {
   return {
+    ...repairDefaults(),
     schemaVersion: 2,
     mode: "local",
     inventory: [],
@@ -44,7 +50,15 @@ export function migrateLegacy(rows) {
 }
 export function readState(storage) {
   const raw = storage.getItem(KEY);
-  if (raw !== null) return validateState(JSON.parse(raw));
+  if (raw !== null) {
+    const previous = validateState(JSON.parse(raw));
+    const upgraded = ensureRepairState(previous);
+    if (upgraded !== previous) {
+      storage.setItem(KEY + "-before-repairs-v1", raw);
+      storage.setItem(KEY, JSON.stringify(upgraded));
+    }
+    return upgraded;
+  }
   const old = storage.getItem(LEGACY);
   if (old === null) return emptyState();
   const state = migrateLegacy(JSON.parse(old));
@@ -149,6 +163,7 @@ export function validateState(s) {
   for (const a of s.assessments)
     if (!a.id || !a.input || typeof a.input.model !== "string")
       throw new Error("Некорректная сохранённая оценка");
+  validateRepairState(s);
   return s;
 }
 export function purchase(state, snapshot, buy, reason = "") {

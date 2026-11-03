@@ -208,6 +208,8 @@ test("CSV roundtrip, кавычки и многострочный текст", (
   assert.equal(preview.valid[0].note, p.note);
 });
 test("CSV защищён от формул", () => {
+  assert.equal(safeCell(-7000), '"-7000"');
+  assert.equal(safeCell("-1+2"), '"\'-1+2"');
   assert.equal(safeCell("=1+1"), '"\'=1+1"');
   assert.equal(safeCell(" @SUM(A1)"), '"\' @SUM(A1)"');
 });
