@@ -1,23 +1,162 @@
-import React,{useState,useEffect,useMemo} from 'react';import{createRoot}from'react-dom/client';import './style.css';
-const money=n=>new Intl.NumberFormat('ru-RU').format(Number(n)||0)+' ₸';
-const seed=[{id:1,model:'Samsung Galaxy A35 5G',category:'Смартфон',storage:128,ram:8,condition:'Хорошее',battery:'',box:true,buy:50000,sell:89000,status:'В наличии',date:'2026-11-03',note:'Полный комплект; следы от чехла'}];
-const load=()=>{try{const v=JSON.parse(localStorage.getItem('nomad-inventory-v1'));return Array.isArray(v)?v:seed}catch{return seed}};
-const blank={model:'',category:'Смартфон',storage:128,ram:4,condition:'Хорошее',battery:'',box:false,buy:0,sell:0,status:'В наличии',date:new Date().toISOString().slice(0,10),note:''};
-function App(){const[items,setItems]=useState(load);const[tab,setTab]=useState('dashboard');const[search,setSearch]=useState('');const[edit,setEdit]=useState(null);const[form,setForm]=useState(blank);const[markup,setMarkup]=useState(25);const[expenses,setExpenses]=useState(0);const[calcBuy,setCalcBuy]=useState(50000);const[calcSell,setCalcSell]=useState(89000);const[calcCondition,setCalcCondition]=useState('Хорошее');const[calcBattery,setCalcBattery]=useState('90');const[calcBox,setCalcBox]=useState(true);const[calcStorage,setCalcStorage]=useState('128');
-useEffect(()=>localStorage.setItem('nomad-inventory-v1',JSON.stringify(items)),[items]);
-const stock=items.filter(x=>x.status==='В наличии');const sold=items.filter(x=>x.status==='Продан');const stockCost=stock.reduce((a,x)=>a+Number(x.buy),0);const soldProfit=sold.reduce((a,x)=>a+Number(x.sell)-Number(x.buy),0);const potential=stock.reduce((a,x)=>a+Number(x.sell)-Number(x.buy),0);
-function openNew(){setEdit(null);setForm({...blank,date:new Date().toISOString().slice(0,10)});setTab('editor')}function openEdit(x){setEdit(x.id);setForm({...x});setTab('editor')}
-function save(e){e.preventDefault();if(!form.model.trim())return;const x={...form,id:edit??Date.now(),buy:Number(form.buy),sell:Number(form.sell),storage:Number(form.storage),ram:Number(form.ram)};setItems(v=>edit?v.map(z=>z.id===edit?x:z):[x,...v]);setTab('catalog')}
-function remove(id){if(window.confirm('Удалить устройство?'))setItems(v=>v.filter(x=>x.id!==id))}
-function exportCSV(){const cols=['id','model','category','storage','ram','condition','battery','box','buy','sell','status','date','note'];const escape=v=>'"'+String(v??'').replaceAll('"','""')+'"';const csv='\ufeff'+cols.join(';')+'\n'+items.map(x=>cols.map(k=>escape(x[k])).join(';')).join('\n');const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='nomad-mobile-inventory.csv';a.click();URL.revokeObjectURL(url)}
-const adjusted=Number(calcSell)+(calcCondition==='Идеальное'?10000:calcCondition==='Среднее'?-10000:calcCondition==='Плохое'?-25000:0)+(Number(calcBattery)<80?-15000:Number(calcBattery)<85?-5000:Number(calcBattery)>=95?5000:0)+(calcBox?0:-5000)+(Number(calcStorage)===256?15000:Number(calcStorage)===512?30000:Number(calcStorage)===1024?45000:0);
-const field=(label,key,type='text')=><label className="field">{label}<input type={type} value={form[key]} onChange={e=>setForm(v=>({...v,[key]:e.target.value}))}/></label>;
-return <div className="app"><aside><div className="brand"><span className="logo">N</span><div><strong>Nomad Mobile</strong><small>Управление скупкой</small></div></div><nav>{[['dashboard','Обзор'],['catalog','Каталог'],['calculator','Калькулятор'],['sales','Продажи']].map(([id,t])=><button key={id} className={tab===id?'active':''} onClick={()=>setTab(id)}>{t}</button>)}</nav><div className="asidefoot">Астана · KZT<br/>Данные хранятся в этом браузере</div></aside><main><header><div><span className="eyebrow">NOMAD MOBILE / CRM</span><h1>{{dashboard:'Панель управления',catalog:'Каталог устройств',calculator:'Калькулятор оценки',sales:'Продажи',editor:edit?'Редактирование':'Новая закупка'}[tab]}</h1></div><button className="primary" onClick={openNew}>+ Добавить устройство</button></header>
-{tab==='dashboard'&&<><div className="stats"><article><span>На складе</span><strong>{stock.length}</strong><small>устройств</small></article><article><span>Вложено в склад</span><strong>{money(stockCost)}</strong><small>себестоимость</small></article><article><span>Потенциальная прибыль</span><strong className="green">{money(potential)}</strong><small>до расходов</small></article><article><span>Прибыль от продаж</span><strong className="green">{money(soldProfit)}</strong><small>{sold.length} продано</small></article></div><section className="panel"><div className="sectionhead"><h2>Устройства на складе</h2><button onClick={()=>setTab('catalog')}>Весь каталог →</button></div><DeviceTable rows={stock} onEdit={openEdit} onRemove={remove} onSell={id=>setItems(v=>v.map(x=>x.id===id?{...x,status:'Продан'}:x))}/></section></>}
-{tab==='catalog'&&<section className="panel"><div className="sectionhead"><h2>Все устройства ({items.length})</h2><div className="actions"><input placeholder="Поиск по модели..." value={search} onChange={e=>setSearch(e.target.value)}/><button onClick={exportCSV}>Экспорт CSV</button></div></div><DeviceTable rows={items.filter(x=>x.model.toLowerCase().includes(search.toLowerCase()))} onEdit={openEdit} onRemove={remove} onSell={id=>setItems(v=>v.map(x=>x.id===id?{...x,status:'Продан'}:x))}/></section>}
-{tab==='sales'&&<section className="panel"><div className="sectionhead"><h2>История продаж</h2><strong className="green">Прибыль: {money(soldProfit)}</strong></div><DeviceTable rows={sold} onEdit={openEdit} onRemove={remove} onSell={()=>{}}/></section>}
-{tab==='calculator'&&<div className="columns"><section className="panel"><h2>Расчёт сделки</h2><p className="muted">Введите закуп и планируемую продажу. Корректировки состояния — ориентировочные, не рыночные котировки.</p><div className="formgrid"><label className="field">Закуп, ₸<input type="number" value={calcBuy} onChange={e=>setCalcBuy(e.target.value)}/></label><label className="field">Базовая продажа, ₸<input type="number" value={calcSell} onChange={e=>setCalcSell(e.target.value)}/></label><label className="field">Память<select value={calcStorage} onChange={e=>setCalcStorage(e.target.value)}>{[64,128,256,512,1024].map(x=><option key={x} value={x}>{x===1024?'1 ТБ':x+' ГБ'}</option>)}</select></label><label className="field">Состояние<select value={calcCondition} onChange={e=>setCalcCondition(e.target.value)}>{['Идеальное','Хорошее','Среднее','Плохое'].map(x=><option key={x}>{x}</option>)}</select></label><label className="field">АКБ, %<input type="number" min="0" max="100" value={calcBattery} onChange={e=>setCalcBattery(e.target.value)}/></label><label className="field">Доп. расходы, ₸<input type="number" value={expenses} onChange={e=>setExpenses(e.target.value)}/></label><label className="field">Наценка рассрочки, %<input type="number" value={markup} onChange={e=>setMarkup(e.target.value)}/></label><label className="check"><input type="checkbox" checked={calcBox} onChange={e=>setCalcBox(e.target.checked)}/> Коробка есть</label></div></section><section className="panel result"><h2>Результат</h2><span>Рекомендуемая цена по заданным поправкам</span><strong>{money(Math.max(0,adjusted))}</strong><div className="resultline"><span>Рассрочка (+{markup}%)</span><b>{money(Math.max(0,adjusted)*(1+Number(markup)/100))}</b></div><div className="resultline"><span>Прибыль после расходов</span><b className={adjusted-Number(calcBuy)-Number(expenses)>=0?'green':'red'}>{money(adjusted-Number(calcBuy)-Number(expenses))}</b></div><div className="resultline"><span>Доходность</span><b>{Number(calcBuy)>0?((adjusted-Number(calcBuy)-Number(expenses))/Number(calcBuy)*100).toFixed(1)+'%':'—'}</b></div><p className="muted">Поправка за память считается относительно базовых 128 ГБ. Если базовая цена уже учитывает память, оставьте 128 ГБ, чтобы не прибавлять её дважды.</p></section></div>}
-{tab==='editor'&&<section className="panel editor"><form onSubmit={save}><div className="formgrid">{field('Модель','model')}{field('Категория','category')} {field('Память, ГБ','storage','number')}{field('ОЗУ, ГБ','ram','number')}<label className="field">Состояние<select value={form.condition} onChange={e=>setForm(v=>({...v,condition:e.target.value}))}>{['Идеальное','Хорошее','Среднее','Плохое','На запчасти'].map(x=><option key={x}>{x}</option>)}</select></label>{field('АКБ, % (необязательно)','battery','number')}{field('Закуп, ₸','buy','number')}{field('Продажа, ₸','sell','number')}<label className="field">Статус<select value={form.status} onChange={e=>setForm(v=>({...v,status:e.target.value}))}><option>В наличии</option><option>Продан</option></select></label>{field('Дата','date','date')}<label className="check"><input type="checkbox" checked={form.box} onChange={e=>setForm(v=>({...v,box:e.target.checked}))}/> Есть коробка</label><label className="field wide">Примечание<textarea value={form.note} onChange={e=>setForm(v=>({...v,note:e.target.value}))}/></label></div><div className="editorfooter"><span>Ожидаемая валовая прибыль: <b className="green">{money(Number(form.sell)-Number(form.buy))}</b></span><button className="primary" type="submit">Сохранить устройство</button></div></form></section>}
-<footer>Nomad Mobile · Локальная CRM · Резервную копию можно выгрузить в CSV</footer></main></div>}
-function DeviceTable({rows,onEdit,onRemove,onSell}){return <div className="tablewrap"><table><thead><tr><th>Устройство</th><th>Закуп</th><th>Продажа</th><th>Прибыль</th><th>Статус</th><th>Действия</th></tr></thead><tbody>{rows.map(x=><tr key={x.id}><td><b>{x.model}</b><small>{x.ram}/{x.storage} ГБ · {x.condition}{x.box?' · коробка':''}</small></td><td>{money(x.buy)}</td><td>{money(x.sell)}</td><td className={x.sell-x.buy>=0?'green':'red'}>{money(x.sell-x.buy)}</td><td><span className={'status '+(x.status==='Продан'?'sold':'')}>{x.status}</span></td><td><div className="rowactions"><button onClick={()=>onEdit(x)}>Изменить</button>{x.status==='В наличии'&&<button onClick={()=>onSell(x.id)}>Продан</button>}<button className="danger" onClick={()=>onRemove(x.id)}>×</button></div></td></tr>)}{!rows.length&&<tr><td colSpan="6" className="empty">Устройств пока нет</td></tr>}</tbody></table></div>}
-createRoot(document.getElementById('root')).render(<App/>);
+import React, { useState, useRef } from "react";
+import { createRoot } from "react-dom/client";
+import "./style.css";
+import Valuator from "./components/Valuator.jsx";
+import Prices from "./components/Prices.jsx";
+import Inventory from "./components/Inventory.jsx";
+import Settings from "./components/Settings.jsx";
+import { readState, KEY, analytics, validateState } from "./domain/storage.js";
+import { money } from "./domain/valuation.js";
+import { Download } from "./components/Fields.jsx";
+export function App() {
+  const [initial] = useState(() => {
+    try {
+      return { state: readState(localStorage) };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+  const [state, setState] = useState(initial.state),
+    [tab, setTab] = useState("valuator"),
+    [message, setMessage] = useState("");
+  const current = useRef(state);
+  function commit(fn) {
+    const previous = current.current;
+    const persisted = localStorage.getItem(KEY);
+    if (persisted !== null && persisted !== JSON.stringify(previous)) throw new Error('Данные изменены в другой вкладке. Перезагрузите страницу перед сохранением.');
+    const next = validateState(fn(previous));
+    localStorage.setItem(KEY + "-before-write", JSON.stringify(previous));
+    localStorage.setItem(KEY, JSON.stringify(next));
+    current.current = next;
+    setState(next);
+  }
+  if (initial.error)
+    return (
+      <main>
+        <h1>Хранилище требует проверки</h1>
+        <p role="alert">{initial.error}</p>
+        <p>
+          Данные не заменены стартовыми товарами. Сохраните исходные ключи и
+          исправьте копию перед повторным открытием.
+        </p>
+        <Download
+          name="nomad-storage-recovery.json"
+          data={JSON.stringify(
+            {
+              v1: localStorage.getItem("nomad-inventory-v1"),
+              v2: localStorage.getItem(KEY),
+            },
+            null,
+            2,
+          )}
+        >
+          Скачать исходные данные
+        </Download>
+      </main>
+    );
+  const totals = analytics(state);
+  const tabs = [
+    ["valuator", "Оценщик"],
+    ["prices", "Прайс и источники"],
+    ["stock", "Склад"],
+    ["sales", "Продажи"],
+    ["analytics", "Аналитика"],
+    ["settings", "Настройки"],
+  ];
+  const props = { state, commit, notify: setMessage };
+  return (
+    <div className="app">
+      <aside>
+        <div className="brand">
+          <span className="logo">N</span>
+          <div>
+            <strong>Nomad Mobile</strong>
+            <small>Скупка и перепродажа</small>
+          </div>
+        </div>
+        <nav>
+          {tabs.map(([k, t]) => (
+            <button
+              key={k}
+              className={tab === k ? "active" : ""}
+              onClick={() => {
+                setTab(k);
+                setMessage("");
+              }}
+            >
+              {t}
+            </button>
+          ))}
+        </nav>
+        <div className="asidefoot">
+          Астана · KZT · Asia/Almaty
+          <br />
+          Локальный режим · без синхронизации
+        </div>
+      </aside>
+      <main>
+        <header>
+          <div>
+            <span className="eyebrow">NOMAD MOBILE / АСТАНА</span>
+            <h1>{tabs.find(([k]) => k === tab)?.[1]}</h1>
+          </div>
+        </header>
+        {message && (
+          <div className="notice" role="status">
+            {message}
+            <button
+              onClick={() => setMessage("")}
+              aria-label="Закрыть уведомление"
+            >
+              ×
+            </button>
+          </div>
+        )}
+        {tab === "valuator" && <Valuator {...props} />}
+        {tab === "prices" && <Prices {...props} />}
+        {tab === "stock" && <Inventory {...props} />}
+        {tab === "sales" && <Inventory {...props} sales />}
+        {tab === "settings" && <Settings {...props} />}
+        {tab === "analytics" && (
+          <>
+            <div className="stats">
+              {[
+                ["Остаток", totals.stock + " устройств"],
+                ["Вложено", money(totals.invested)],
+                ["Ожидаемая разница до расходов", money(totals.expected)],
+                ["Фактическая выручка", money(totals.revenue)],
+                ["Результат после прямых расходов", money(totals.profit)],
+              ].map(([t, v]) => (
+                <article key={t}>
+                  <span>{t}</span>
+                  <strong>{v}</strong>
+                </article>
+              ))}
+            </div>
+            <section className="panel">
+              <p>
+                Подтверждённых продаж: {totals.sold}. Старые записи со статусом
+                «Продан» без фактических сумм исключены. Налоги и общие расходы
+                не учтены. Рабочий склад не заполняется демоданными.
+              </p>
+              <h2>Сохранённые оценки ({state.assessments.length})</h2>
+              {state.assessments.map((x) => (
+                <details key={x.id}>
+                  <summary>
+                    {x.input.model} · {x.at} · {money(x.showcase)}
+                  </summary>
+                  <pre>{JSON.stringify(x, null, 2)}</pre>
+                </details>
+              ))}
+            </section>
+          </>
+        )}
+        <footer>
+          Nomad Mobile · Данные в этом браузере · Регулярно сохраняйте полную
+          копию JSON в настройках.
+        </footer>
+      </main>
+    </div>
+  );
+}
+createRoot(document.getElementById("root")).render(<App />);
