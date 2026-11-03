@@ -233,13 +233,11 @@ test("справочник скупки: импорт, автоматическ�
       },
     ],
   };
-  await page
-    .getByLabel("Загрузить справочник DOCX или JSON")
-    .setInputFiles({
-      name: "synthetic-test.json",
-      mimeType: "application/json",
-      buffer: Buffer.from(JSON.stringify(guide)),
-    });
+  await page.getByLabel("Загрузить справочник DOCX или JSON").setInputFiles({
+    name: "synthetic-test.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(guide)),
+  });
   await expect(page.getByText(/Готово к сохранению: 1/)).toBeVisible();
   await page
     .getByRole("button", { name: "Подтвердить сохранение справочника" })
@@ -285,7 +283,7 @@ test("справочник скупки: импорт, автоматическ�
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
-  await page.evaluate(()=>window.scrollTo(0,0));
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({
     path: `/tmp/nomad-guide-${test.info().project.name}.png`,
     fullPage: true,
@@ -325,4 +323,137 @@ test("исходный DOCX владельца: локальная провер�
         JSON.parse(localStorage.getItem("nomad-workspace-v2")).prices.length,
     ),
   ).toBe(first);
+});
+
+async function encryptedSetupFixture() {
+  const { webcrypto, randomBytes } = await import("node:crypto");
+  const id = randomBytes(16).toString("hex"),
+    key = randomBytes(32),
+    iv = randomBytes(12);
+  const guide = {
+    format: "nomad-owner-guide",
+    version: 1,
+    sourceName: "synthetic-test.json",
+    documentDate: "2026-11-04",
+    entries: [
+      {
+        ...price,
+        id: "guide-13",
+        source: "owner-guide",
+        model: "iPhone 13",
+        ram: null,
+        price: 155000,
+        buyMin: 90000,
+        buyMax: 105000,
+        saleMin: 130000,
+        saleMax: 145000,
+        quickMin: 120000,
+        quickMax: 125000,
+      },
+    ],
+  };
+  const imported = await webcrypto.subtle.importKey(
+    "raw",
+    key,
+    "AES-GCM",
+    false,
+    ["encrypt"],
+  );
+  const ciphertext = await webcrypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv,
+      additionalData: new TextEncoder().encode("nomad-owner-setup:v1:" + id),
+    },
+    imported,
+    new TextEncoder().encode(JSON.stringify(guide)),
+  );
+  return {
+    id,
+    key: key.toString("base64url"),
+    envelope: {
+      version: 1,
+      algorithm: "AES-256-GCM",
+      iv: iv.toString("base64url"),
+      ciphertext: Buffer.from(ciphertext).toString("base64url"),
+    },
+  };
+}
+test("ссылка настройки автоматически импортирует прайс без файла, сохраняет склад и скрывает ключ", async ({
+  page,
+}) => {
+  const fixture = await encryptedSetupFixture();
+  let requests = 0;
+  await page.route("**/setup/" + fixture.id + ".json", async (route) => {
+    requests++;
+    await route.fulfill({ json: fixture.envelope });
+  });
+  const saved = {
+    ...emptyState(),
+    prices: [price],
+    inventory: [
+      {
+        id: "keep-me",
+        model: "Старый товар",
+        buy: 0,
+        sell: 100,
+        status: "В наличии",
+      },
+    ],
+  };
+  await page.addInitScript((saved) => {
+    if (!sessionStorage.getItem("seeded")) {
+      localStorage.setItem("nomad-workspace-v2", JSON.stringify(saved));
+      sessionStorage.setItem("seeded", "1");
+    }
+  }, saved);
+  const link = "/#nomad-setup=" + fixture.id + "." + fixture.key;
+  await page.goto(link);
+  await expect(page.getByRole("status")).toContainText(
+    "Готово! Прайс подключён",
+  );
+  expect(await page.evaluate(() => location.hash)).toBe("");
+  let serialized = await page.evaluate(() =>
+    localStorage.getItem("nomad-workspace-v2"),
+  );
+  const s = JSON.parse(serialized);
+  expect(s.inventory).toEqual(saved.inventory);
+  expect(s.prices).toHaveLength(2);
+  expect(s.setupImports).toHaveLength(1);
+  expect(serialized).not.toContain(fixture.key);
+  expect(serialized).not.toContain(fixture.envelope.ciphertext);
+  expect(s.policy.guideIphoneDiscount).toBe(30000);
+  expect(s.policy.guideAndroidDiscount).toBe(0);
+  await page.getByLabel("Поиск модели", { exact: true }).fill("iPhone 13");
+  await expect(page.getByText(/60\s000 ₸ – 75\s000 ₸/)).toBeVisible();
+  await page.goto(link);
+  await expect(page.getByRole("status")).toContainText("уже подключён");
+  expect(requests).toBe(1);
+  expect(
+    await page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem("nomad-workspace-v2")).prices.length,
+    ),
+  ).toBe(2);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+});
+test("неверная ссылка не меняет хранилище и не оставляет ключ в адресе", async ({
+  page,
+}) => {
+  const fixture = await encryptedSetupFixture();
+  await page.route("**/setup/" + fixture.id + ".json", (route) =>
+    route.fulfill({ json: fixture.envelope }),
+  );
+  await page.goto("/#nomad-setup=" + fixture.id + "." + "a".repeat(43));
+  await expect(page.getByRole("status")).toContainText(
+    "Не удалось открыть прайс",
+  );
+  expect(await page.evaluate(() => location.hash)).toBe("");
+  expect(
+    await page.evaluate(() => localStorage.getItem("nomad-workspace-v2")),
+  ).toBeNull();
 });
