@@ -1,4 +1,4 @@
-export const VERSION = "1.0.0";
+export const VERSION = "1.1.0";
 export const policyDefaults = {
   bargain: 0,
   quick: 5,
@@ -36,6 +36,7 @@ export function priceKey(x) {
     x.base.body,
     x.base.box,
     x.base.battery ?? "unknown",
+    ...(x.source === "owner-guide" ? ["owner-guide"] : []),
   ].join("|");
 }
 export function evaluate(
@@ -65,7 +66,14 @@ export function evaluate(
     restrictions.push(
       "Блокировки и аккаунты не проверены или обнаружена проблема",
     );
-  if (Object.values(input.checks ?? {}).some((v) => v !== "ok"))
+  const requiredChecks = [
+    "sensor",
+    "cameras",
+    "network",
+    "charging",
+    ...(input.model.startsWith("iPhone") ? ["faceid"] : []),
+  ];
+  if (requiredChecks.some((k) => input.checks?.[k] !== "ok"))
     restrictions.push("Функции устройства требуют диагностики");
   if (
     (input.defects ?? []).some((x) =>
@@ -73,7 +81,7 @@ export function evaluate(
     )
   )
     restrictions.push("Серьёзный дефект: требуется ручная диагностика");
-  if (input.repairHistory === "unknown")
+  if (!["none", "repaired"].includes(input.repairHistory))
     restrictions.push("История ремонта не проверена");
   if (!price || configKey(price) !== configKey(input))
     return {
@@ -83,6 +91,7 @@ export function evaluate(
       status: "no-data",
     };
   const base = amount(price.price, "Цена прайса");
+  const guide = price.source === "owner-guide";
   const age = (Date.parse(now) - Date.parse(price.checkedAt)) / 86400000;
   if (!Number.isFinite(age) || age < -1)
     throw new Error("Некорректная дата прайса");
@@ -103,7 +112,9 @@ export function evaluate(
   );
   add(
     "Коробка относительно базового комплекта",
-    (Number(input.box) - Number(price.base.box)) * p.box,
+    price.base.box == null
+      ? 0
+      : (Number(input.box) - Number(price.base.box)) * p.box,
   );
   if (
     battery != null &&
@@ -116,12 +127,33 @@ export function evaluate(
     0,
     base + adjustments.reduce((a, x) => a + x.value, 0),
   );
-  const sale = Math.round(showcase * (1 - p.bargain / 100));
-  const quick = Math.round(sale * (1 - p.quick / 100));
+  const totalAdjustment = adjustments.reduce((a, x) => a + x.value, 0);
+  const sale = guide
+    ? Math.max(0, amount(price.saleMin) + totalAdjustment)
+    : Math.round(showcase * (1 - p.bargain / 100));
+  const quick = guide
+    ? Math.max(0, amount(price.quickMin) + totalAdjustment)
+    : Math.round(sale * (1 - p.quick / 100));
   const costs = expenses + (input.scenario === "repair" ? repair : 0);
   const ceiling = Math.floor(quick - costs - p.risk - p.minProfit);
   const manual = restrictions.length > 0;
-  const maxBuy = manual || ceiling < 0 ? null : ceiling;
+  const reduction = guide ? guideReduction(input.model, p) : 0;
+  const preliminaryMin = guide
+    ? Math.max(0, amount(price.buyMin) - reduction + totalAdjustment - costs)
+    : null;
+  const preliminaryMax = guide
+    ? Math.max(0, amount(price.buyMax) - reduction + totalAdjustment - costs)
+    : null;
+  const maxBuy =
+    manual || ceiling < 0
+      ? null
+      : guide
+        ? Math.min(ceiling, preliminaryMax)
+        : ceiling;
+  const hardRisk =
+    (input.defects ?? []).length > 0 ||
+    input.locks === "problem" ||
+    Object.values(input.checks ?? {}).some((v) => v === "broken");
   const buy =
     input.ask === "" || input.ask == null
       ? null
@@ -140,19 +172,58 @@ export function evaluate(
     sale,
     quick,
     maxBuy,
-    recommendedBuy: maxBuy == null ? null : Math.max(0, maxBuy - p.negotiation),
+    recommendedBuy:
+      maxBuy == null
+        ? null
+        : guide
+          ? Math.min(preliminaryMin, maxBuy)
+          : Math.max(0, maxBuy - p.negotiation),
+    guide,
+    reduction,
+    preliminaryMin,
+    preliminaryMax,
+    customerOffer: hardRisk
+      ? null
+      : guide
+        ? preliminaryMin
+        : maxBuy == null
+          ? null
+          : Math.max(0, maxBuy - p.negotiation),
+    guideProfit: guide ? sale - preliminaryMin - costs : null,
+    basisBuyMin: guide ? price.buyMin : null,
+    basisBuyMax: guide ? price.buyMax : null,
+    saleMax: guide ? Math.max(0, price.saleMax + totalAdjustment) : sale,
+    quickMax: guide ? Math.max(0, price.quickMax + totalAdjustment) : quick,
     installment: Math.round(showcase * (1 + p.markup / 100)),
     expectedProfit: buy == null ? null : sale - buy - costs,
     installmentBankCost: Math.round(
       (showcase * (1 + p.markup / 100) * p.bankFee) / 100,
     ),
-    quality: "Ручной ориентир владельца; не рыночная статистика",
+    quality: guide
+      ? "Справочный прайс из переписки; не свежий рынок, часть цен расчётная"
+      : "Ручной ориентир владельца; не рыночная статистика",
     pawn: null,
   };
 }
 
 export function businessDate(value) {
- if (!value || !Number.isFinite(Date.parse(value))) return 'Нет данных';
- if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value.split('-').reverse().join('.');
- return new Intl.DateTimeFormat('ru-RU', {timeZone:'Asia/Almaty',dateStyle:'short',timeStyle:'short'}).format(new Date(value));
+  if (!value || !Number.isFinite(Date.parse(value))) return "Нет данных";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value))
+    return value.split("-").reverse().join(".");
+  return new Intl.DateTimeFormat("ru-RU", {
+    timeZone: "Asia/Almaty",
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+export const guidePolicyDefaults = {
+  guideIphoneDiscount: 30000,
+  guideAndroidDiscount: 0,
+};
+export function guideReduction(model, policy) {
+  const key = model.startsWith("iPhone")
+    ? "guideIphoneDiscount"
+    : "guideAndroidDiscount";
+  return amount(policy[key] ?? guidePolicyDefaults[key]);
 }

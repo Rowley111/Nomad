@@ -5,6 +5,7 @@ import Valuator from "./components/Valuator.jsx";
 import Prices from "./components/Prices.jsx";
 import Inventory from "./components/Inventory.jsx";
 import Settings from "./components/Settings.jsx";
+import GuideImport from "./components/GuideImport.jsx";
 import { readState, KEY, analytics, validateState } from "./domain/storage.js";
 import { money } from "./domain/valuation.js";
 import { Download } from "./components/Fields.jsx";
@@ -23,7 +24,10 @@ export function App() {
   function commit(fn) {
     const previous = current.current;
     const persisted = localStorage.getItem(KEY);
-    if (persisted !== null && persisted !== JSON.stringify(previous)) throw new Error('Данные изменены в другой вкладке. Перезагрузите страницу перед сохранением.');
+    if (persisted !== null && persisted !== JSON.stringify(previous))
+      throw new Error(
+        "Данные изменены в другой вкладке. Перезагрузите страницу перед сохранением.",
+      );
     const next = validateState(fn(previous));
     localStorage.setItem(KEY + "-before-write", JSON.stringify(previous));
     localStorage.setItem(KEY, JSON.stringify(next));
@@ -68,7 +72,13 @@ export function App() {
     <div className="app">
       <aside>
         <div className="brand">
-          <span className="logo">N</span>
+          <img
+            className="brand-logo"
+            src="/nomad-logo.svg"
+            alt="Логотип Nomad Mobile"
+            width="58"
+            height="37"
+          />
           <div>
             <strong>Nomad Mobile</strong>
             <small>Скупка и перепродажа</small>
@@ -112,7 +122,12 @@ export function App() {
             </button>
           </div>
         )}
-        {tab === "valuator" && <Valuator {...props} />}
+        {tab === "valuator" && (
+          <>
+            <GuideImport {...props} />
+            <Valuator {...props} />
+          </>
+        )}
         {tab === "prices" && <Prices {...props} />}
         {tab === "stock" && <Inventory {...props} />}
         {tab === "sales" && <Inventory {...props} sales />}

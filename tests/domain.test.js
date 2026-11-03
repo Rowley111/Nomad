@@ -222,5 +222,156 @@ test("неудача источника не изменяет дату успе�
   assert.ok(r.error);
 });
 
-test('повтор подтверждения закупки с тем же токеном отвергается',()=>{const r={...calc(),purchaseToken:'request-1'};const s=purchase(emptyState(),r,50000);assert.throws(()=>purchase(s,r,50000));assert.equal(s.inventory.length,1);});
-test('восстановление отвергает повреждённый каталог и прайс',()=>{assert.throws(()=>previewBackup(JSON.stringify({...emptyState(),catalog:[{}]})));assert.throws(()=>previewBackup(JSON.stringify({...emptyState(),prices:[{id:'a',price:-1}]})));});
+test("повтор подтверждения закупки с тем же токеном отвергается", () => {
+  const r = { ...calc(), purchaseToken: "request-1" };
+  const s = purchase(emptyState(), r, 50000);
+  assert.throws(() => purchase(s, r, 50000));
+  assert.equal(s.inventory.length, 1);
+});
+test("восстановление отвергает повреждённый каталог и прайс", () => {
+  assert.throws(() =>
+    previewBackup(JSON.stringify({ ...emptyState(), catalog: [{}] })),
+  );
+  assert.throws(() =>
+    previewBackup(
+      JSON.stringify({ ...emptyState(), prices: [{ id: "a", price: -1 }] }),
+    ),
+  );
+});
+
+test("справочник iPhone: снижение 30к один раз, витрина и память не меняются", () => {
+  const gp = {
+    ...price,
+    source: "owner-guide",
+    sourceName: "Тестовый справочник",
+    buyMin: 90000,
+    buyMax: 105000,
+    price: 155000,
+    saleMin: 130000,
+    saleMax: 145000,
+    quickMin: 120000,
+    quickMax: 125000,
+    model: "iPhone 13",
+    ram: null,
+  };
+  const gi = {
+    ...input,
+    model: "iPhone 13",
+    ram: null,
+    checks: { ...input.checks, faceid: "ok" },
+  };
+  const r = calc(gi, gp);
+  assert.equal(r.preliminaryMin, 60000);
+  assert.equal(r.preliminaryMax, 75000);
+  assert.equal(r.showcase, 155000);
+  assert.equal(r.maxBuy, 75000);
+  assert.equal(r.recommendedBuy, 60000);
+  assert.equal(r.sale, 130000);
+  assert.equal(r.guideProfit, 70000);
+  assert.equal(
+    calc(gi, gp, { ...policyDefaults, guideIphoneDiscount: 25000 })
+      .preliminaryMin,
+    65000,
+  );
+});
+test("Android без снижения; неизвестная коробка не штрафует; нулевая скупка не отрицательная", () => {
+  const gp = {
+    ...price,
+    source: "owner-guide",
+    sourceName: "Тест",
+    buyMin: 10000,
+    buyMax: 15000,
+    saleMin: 24000,
+    saleMax: 27000,
+    quickMin: 20000,
+    quickMax: 22000,
+    base: { ...price.base, box: null },
+  };
+  const r = calc({ ...input, box: false }, gp);
+  assert.equal(r.reduction, 0);
+  assert.equal(r.preliminaryMin, 10000);
+  assert.equal(r.showcase, 89000);
+  assert.equal(
+    calc(input, gp, { ...policyDefaults, guideAndroidDiscount: 30000 })
+      .preliminaryMax,
+    0,
+  );
+});
+test("справочник виден до диагностики, безопасный максимум скрыт; серьёзные дефекты блокируют копирование", () => {
+  const gp = {
+    ...price,
+    source: "owner-guide",
+    sourceName: "Тест",
+    buyMin: 50000,
+    buyMax: 60000,
+    saleMin: 80000,
+    saleMax: 85000,
+    quickMin: 75000,
+    quickMax: 80000,
+  };
+  const r = calc({ ...input, locks: "unknown" }, gp);
+  assert.equal(r.maxBuy, null);
+  assert.equal(r.preliminaryMin, 50000);
+  assert.equal(r.customerOffer, 50000);
+  assert.equal(calc({ ...input, defects: ["matrix"] }, gp).customerOffer, null);
+});
+test("справочник и ручная витрина сосуществуют, повторный импорт не дублирует", () => {
+  const gp = {
+    ...price,
+    source: "owner-guide",
+    sourceName: "Тест",
+    buyMin: 50000,
+    buyMax: 60000,
+    saleMin: 80000,
+    saleMax: 85000,
+    quickMin: 75000,
+    quickMax: 80000,
+  };
+  let s = mergePrices(emptyState(), [price, gp]);
+  s = mergePrices(s, [gp]);
+  assert.equal(s.prices.length, 2);
+  assert.equal(s.priceHistory.length, 2);
+  const restored = previewBackup(JSON.stringify(s));
+  assert.equal(restored.prices[1].buyMin, 50000);
+  assert.deepEqual(
+    previewPrices(pricesCSV([gp]), "csv", catalogDefaults).errors,
+    [],
+  );
+});
+
+test("DOCX-таблицы: тысячи/ТБ, eSIM Air, неоднозначные конфигурации, без исторических строк", async () => {
+  const { parseGuideTables, previewGuide } = await import(
+    "../src/domain/guide.js"
+  );
+  const header = [
+    "Модель",
+    "Память,ГБ / ТБ",
+    "Скупка",
+    "Витрина",
+    "После торга",
+    "Быстро",
+    "Рассрочка+25%",
+  ];
+  const g = parseGuideTables(
+    [
+      [
+        header,
+        ["13", "128", "90–105", "155", "130–145", "120–125", "193,75"],
+        ["Air", "1 ТБ", "395–420", "520", "470–500", "445–460", "650"],
+      ],
+      [
+        ["Устройство", "Ваш закуп", "Витрина", "+25%", "Разница"],
+        ["Тест", "50 000", "89 000", "111 250", "39 000"],
+      ],
+    ],
+    "test.docx",
+    "2026-11-04",
+  );
+  assert.equal(g.entries.length, 2);
+  assert.equal(g.entries[0].buyMin, 90000);
+  assert.equal(g.entries[1].storage, 1024);
+  assert.equal(g.entries[1].sim, "esim");
+  assert.equal(previewGuide(g, catalogDefaults).valid.length, 2);
+  assert.throws(() => parseGuideTables([], "invalid.docx", "2026-11-04"));
+  assert.throws(() => previewGuide({ entries: [] }, catalogDefaults));
+});

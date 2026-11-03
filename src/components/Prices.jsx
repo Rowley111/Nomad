@@ -7,6 +7,7 @@ import {
   pricesCSV,
 } from "../domain/imports.js";
 import { money } from "../domain/valuation.js";
+import GuideImport from "./GuideImport.jsx";
 const blank = {
   model: "Samsung Galaxy A35 5G",
   storage: 128,
@@ -24,6 +25,13 @@ const blank = {
   box: true,
   battery: "",
   note: "",
+  buyMin: "",
+  buyMax: "",
+  saleMin: "",
+  saleMax: "",
+  quickMin: "",
+  quickMax: "",
+  sourceName: "Ручной справочник владельца",
 };
 export default function Prices({ state, commit, notify }) {
   const [form, setForm] = useState(blank),
@@ -45,6 +53,7 @@ export default function Prices({ state, commit, notify }) {
   }
   return (
     <>
+      <GuideImport state={state} commit={commit} notify={notify} />
       <div className="columns">
         <section className="panel">
           <h2>Сохранить ориентир владельца</h2>
@@ -54,6 +63,44 @@ export default function Prices({ state, commit, notify }) {
           </p>
           <form onSubmit={save}>
             <div className="formgrid">
+              <Select
+                label="Тип прайса"
+                value={form.source}
+                options={[
+                  ["owner", "Ориентир продажи"],
+                  ["owner-guide", "Скупка и продажа по справочнику"],
+                ]}
+                onChange={(v) => set("source", v)}
+              />
+              {form.source === "owner-guide" && (
+                <>
+                  <Field
+                    label="Название документа-источника"
+                    value={form.sourceName}
+                    onChange={(v) => set("sourceName", v)}
+                    required
+                  />
+                  {[
+                    ["buyMin", "Скупка от, ₸ (до снижения)"],
+                    ["buyMax", "Скупка до, ₸ (до снижения)"],
+                    ["saleMin", "После торга от, ₸"],
+                    ["saleMax", "После торга до, ₸"],
+                    ["quickMin", "Быстрая продажа от, ₸"],
+                    ["quickMax", "Быстрая продажа до, ₸"],
+                  ].map(([k, t]) => (
+                    <Field
+                      key={k}
+                      label={t}
+                      value={form[k]}
+                      type="number"
+                      min="0"
+                      required
+                      onChange={(v) => set(k, v)}
+                    />
+                  ))}
+                </>
+              )}
+
               <Select
                 label="Модель"
                 value={form.model}
@@ -136,10 +183,25 @@ export default function Prices({ state, commit, notify }) {
                 max="100"
                 onChange={(v) => set("battery", v)}
               />
+              {form.source === "owner-guide" && (
+                <Select
+                  label="Базовая коробка"
+                  value={form.box == null ? "unknown" : String(form.box)}
+                  options={[
+                    ["unknown", "Не указана"],
+                    ["true", "Есть"],
+                    ["false", "Нет"],
+                  ]}
+                  onChange={(v) =>
+                    set("box", v === "unknown" ? null : v === "true")
+                  }
+                />
+              )}
               <label className="check">
                 <input
                   type="checkbox"
-                  checked={form.box}
+                  disabled={form.source === "owner-guide"}
+                  checked={form.box ?? false}
                   onChange={(e) => set("box", e.target.checked)}
                 />
                 Базовый комплект: коробка
@@ -173,9 +235,22 @@ export default function Prices({ state, commit, notify }) {
                 </b>
                 <p>
                   {x.base.screen}/{x.base.body} · коробка{" "}
-                  {x.base.box ? "есть" : "нет"} · {x.checkedAt} · {x.author}
+                  {x.base.box == null
+                    ? "не указана"
+                    : x.base.box
+                      ? "есть"
+                      : "нет"}{" "}
+                  · {x.checkedAt} · {x.author}
                 </p>
                 <p>{x.note}</p>
+                {x.source === "owner-guide" && (
+                  <p>
+                    Скупка файла: {money(x.buyMin)} – {money(x.buyMax)} ·{" "}
+                    {x.sourceName}
+                    <br />
+                    Снижение применяется при оценке, исходные цены сохранены.
+                  </p>
+                )}
                 <button
                   onClick={() =>
                     setForm({

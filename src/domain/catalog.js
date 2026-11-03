@@ -90,13 +90,22 @@ export const initialInput = {
   expenses: 0,
   ask: "",
   scenario: "asis",
-  note: "Небольшие следы от чехла",
+  note: "",
 };
 export function changeModel(input, model, catalog) {
   const config = catalog.find((x) => x.name === model)?.configs[0];
   return {
     ...input,
     model,
+    battery: "",
+    cycles: "",
+    repairHistory: "unknown",
+    parts: "",
+    locks: "unknown",
+    defects: [],
+    repair: 0,
+    ask: "",
+    note: "",
     storage: config?.storage ?? "",
     ram: config?.ram ?? null,
     sim: model === "iPhone Air" ? "esim" : "physical",
@@ -152,3 +161,85 @@ for (const model of catalogDefaults) {
   if (confirmed[model.name])
     Object.assign(model, confirmed[model.name], { verified: true });
 }
+
+// Exact additional variants checked against manufacturer documentation.
+const guideCatalogAdditions = [
+  {
+    name: "Samsung Galaxy A14 4G",
+    brand: "Samsung",
+    configs: [
+      { storage: 64, ram: 4 },
+      { storage: 128, ram: 4 },
+    ],
+    source:
+      "https://www.samsung.com/ph/smartphones/galaxy-a/galaxy-a14-silver-128gb-sm-a145fzsvphl/",
+    verified: true,
+  },
+  {
+    name: "Samsung Galaxy A35 5G",
+    brand: "Samsung",
+    configs: [{ storage: 256, ram: 8 }],
+    source:
+      "https://news.samsung.com/br/samsung-galaxy-a55-5g-e-galaxy-a35-5g-inovacoes-incriveis-e-seguranca-projetada-para-todos",
+    verified: true,
+  },
+  {
+    name: "Samsung Galaxy A21s",
+    brand: "Samsung",
+    configs: [{ storage: 32, ram: 3 }],
+    source:
+      "https://news.samsung.com/pl/galaxy-a21s-nowy-czlonek-rodziny-samsung-galaxy-a",
+    verified: true,
+  },
+  {
+    name: "Samsung Galaxy A41",
+    brand: "Samsung",
+    configs: [{ storage: 64, ram: 4 }],
+    source:
+      "https://news.samsung.com/uk/samsung-announces-the-new-additions-to-a-series-smartphone-lineup-galaxy-a71-5g-galaxy-a51-5g-and-galaxy-a41",
+    verified: true,
+  },
+  {
+    name: "Samsung Galaxy A50",
+    brand: "Samsung",
+    configs: [{ storage: 64, ram: 4 }],
+    source:
+      "https://www.samsung.com/us/business/support/owners/product/galaxy-a50-verizon/",
+    verified: true,
+  },
+  {
+    name: "Redmi 10 2022",
+    brand: "Redmi",
+    configs: [
+      { storage: 64, ram: 4 },
+      { storage: 128, ram: 4 },
+    ],
+    source: "https://www.mi.com/ng/product/redmi-10-2022/specs/",
+    verified: true,
+  },
+  {
+    name: "Redmi 15 4G",
+    brand: "Redmi",
+    configs: [{ storage: 256, ram: 8 }],
+    source: "https://www.mi.com/global/product/redmi-15/specs/",
+    verified: true,
+  },
+];
+export function catalogForGuide(existing) {
+  const catalog = structuredClone(existing);
+  for (const addition of guideCatalogAdditions) {
+    const model = catalog.find((m) => m.name === addition.name);
+    if (!model) {
+      catalog.push(structuredClone(addition));
+      continue;
+    }
+    for (const c of addition.configs)
+      if (
+        !model.configs.some((x) => x.storage === c.storage && x.ram === c.ram)
+      )
+        model.configs.push({ ...c });
+  }
+  return catalog;
+}
+const extended = catalogForGuide(catalogDefaults);
+catalogDefaults.splice(0, catalogDefaults.length, ...extended);

@@ -41,6 +41,9 @@ test("прайс → оценка → подтверждённая закупк�
     ),
   ).toBeVisible();
   await page
+    .getByText("Комплект, диагностика и расходы", { exact: true })
+    .click();
+  await page
     .getByLabel("История ремонта", { exact: true })
     .selectOption("none");
   for (const name of ["Сенсор", "Камеры", "Связь", "Зарядка"])
@@ -158,4 +161,168 @@ test("старый localStorage сохраняется при открытии",
   expect(values.count).toBe(1);
 });
 
-test('резервная копия восстанавливается только после предпросмотра и подтверждения',async({page})=>{await page.goto('/');await page.getByRole('button',{name:'Настройки',exact:true}).click();const state={...emptyState(),inventory:[{id:'restored',model:'Восстановленный телефон',storage:128,ram:8,buy:0,sell:100,status:'В наличии'}]};await page.getByLabel('JSON резервной копии').fill(JSON.stringify(state));await page.getByRole('button',{name:'Предпросмотр восстановления'}).click();expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('nomad-workspace-v2')||'{"inventory":[]}').inventory.length)).toBe(0);await page.getByRole('button',{name:'Подтвердить замену из копии'}).click();await page.getByRole('button',{name:'Склад',exact:true}).click();await expect(page.getByRole('heading',{name:/Восстановленный телефон/})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);});
+test("резервная копия восстанавливается только после предпросмотра и подтверждения", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Настройки", exact: true }).click();
+  const state = {
+    ...emptyState(),
+    inventory: [
+      {
+        id: "restored",
+        model: "Восстановленный телефон",
+        storage: 128,
+        ram: 8,
+        buy: 0,
+        sell: 100,
+        status: "В наличии",
+      },
+    ],
+  };
+  await page.getByLabel("JSON резервной копии").fill(JSON.stringify(state));
+  await page
+    .getByRole("button", { name: "Предпросмотр восстановления" })
+    .click();
+  expect(
+    await page.evaluate(
+      () =>
+        JSON.parse(
+          localStorage.getItem("nomad-workspace-v2") || '{"inventory":[]}',
+        ).inventory.length,
+    ),
+  ).toBe(0);
+  await page
+    .getByRole("button", { name: "Подтвердить замену из копии" })
+    .click();
+  await page.getByRole("button", { name: "Склад", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: /Восстановленный телефон/ }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+});
+
+test("справочник скупки: импорт, автоматическая оценка, сохранение и настройки", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const guide = {
+    format: "nomad-owner-guide",
+    version: 1,
+    documentDate: "2026-11-04",
+    sourceName: "synthetic-test.json",
+    entries: [
+      {
+        ...price,
+        id: "guide-13",
+        model: "iPhone 13",
+        ram: null,
+        price: 155000,
+        buyMin: 90000,
+        buyMax: 105000,
+        saleMin: 130000,
+        saleMax: 145000,
+        quickMin: 120000,
+        quickMax: 125000,
+        source: "owner-guide",
+        base: { ...price.base, battery: 85 },
+      },
+    ],
+  };
+  await page
+    .getByLabel("Загрузить справочник DOCX или JSON")
+    .setInputFiles({
+      name: "synthetic-test.json",
+      mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify(guide)),
+    });
+  await expect(page.getByText(/Готово к сохранению: 1/)).toBeVisible();
+  await page
+    .getByRole("button", { name: "Подтвердить сохранение справочника" })
+    .click();
+  await page.getByLabel("Поиск модели", { exact: true }).fill("iPhone 13");
+  await expect(page.getByText(/60\s000 ₸ – 75\s000 ₸/)).toBeVisible();
+  await expect(page.getByText("155 000 ₸", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(
+      "Требуется ручная диагностика. Безопасный максимум закупа не рассчитан.",
+    ),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Сохранить оценку", exact: true })
+    .click();
+  let s = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("nomad-workspace-v2")),
+  );
+  expect(s.assessments.at(-1).preliminaryMin).toBe(60000);
+  expect(s.inventory).toHaveLength(0);
+  await page.getByRole("button", { name: "Настройки", exact: true }).click();
+  await page
+    .getByLabel("Снижение скупки iPhone из справочника, ₸")
+    .fill("25000");
+  await page
+    .getByRole("button", { name: "Сохранить политику", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Оценщик", exact: true }).click();
+  await page.getByLabel("Поиск модели", { exact: true }).fill("iPhone 13");
+  await expect(page.getByText(/65\s000 ₸ – 80\s000 ₸/)).toBeVisible();
+  s = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("nomad-workspace-v2")),
+  );
+  expect(s.assessments.at(-1).preliminaryMin).toBe(60000);
+  await expect(page.getByAltText("Логотип Nomad Mobile")).toBeVisible();
+  expect(
+    await page
+      .getByAltText("Логотип Nomad Mobile")
+      .evaluate((img) => img.complete && img.naturalWidth > 0),
+  ).toBe(true);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.evaluate(()=>window.scrollTo(0,0));
+  await page.screenshot({
+    path: `/tmp/nomad-guide-${test.info().project.name}.png`,
+    fullPage: true,
+  });
+});
+
+test("исходный DOCX владельца: локальная проверка всех таблиц", async ({
+  page,
+}) => {
+  test.skip(
+    !process.env.NOMAD_LOCAL_DOCX,
+    "Исходный коммерческий файл не включён в публичный репозиторий",
+  );
+  await page.goto("/");
+  await page.getByLabel("Дата редакции документа").fill("2026-11-04");
+  await page
+    .getByLabel("Загрузить справочник DOCX или JSON")
+    .setInputFiles(process.env.NOMAD_LOCAL_DOCX);
+  await expect(
+    page.getByRole("button", { name: "Подтвердить сохранение справочника" }),
+  ).toBeEnabled();
+  await page
+    .getByRole("button", { name: "Подтвердить сохранение справочника" })
+    .click();
+  const first = await page.evaluate(
+    () => JSON.parse(localStorage.getItem("nomad-workspace-v2")).prices.length,
+  );
+  expect(first).toBeGreaterThanOrEqual(93);
+  await page.getByLabel("Поиск модели", { exact: true }).fill("iPhone 13");
+  await expect(page.getByText(/60\s000 ₸ – 75\s000 ₸/)).toBeVisible();
+  await page.reload();
+  await page.getByLabel("Поиск модели", { exact: true }).fill("iPhone 13");
+  await expect(page.getByText(/60\s000 ₸ – 75\s000 ₸/)).toBeVisible();
+  expect(
+    await page.evaluate(
+      () =>
+        JSON.parse(localStorage.getItem("nomad-workspace-v2")).prices.length,
+    ),
+  ).toBe(first);
+});
