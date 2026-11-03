@@ -32,3 +32,20 @@ Apple: https://support.apple.com/en-gb/108044 (поисковый индекс �
 ## Render
 
 Проверена https://render.com/docs/static-sites : фронтенд публикуется как Static Site; сервер требует отдельного Web Service. Сохранены Vite и dist, конфигурация действующего сайта не менялась. PostgreSQL, API, фоновые задачи и тарифы пока не выбирались; ресурсы и расходы не создавались.
+
+## Уточнение 04.11.2026: предоставленный прайс
+
+Получен DOCX владельца «Nomad_Mobile_Price_List», редакция 04.11.2026. 110 основных строк: 87 iPhone + 23 Android. Сами данные документа предупреждают, что это восстановленные оценки из переписки с расчётными конфигурациями. Они сохраняются с source=owner-guide, отдельно от owner и от рыночных источников. Дата документа — не дата успешного обновления OLX. Таблица исторических закупов, индивидуальные случаи и контрольные объявления в общую базу цен не смешиваются. Инструкции документа не выполнялись как команды; импорт читает только подходящие таблицы и текстовые поля.
+
+Дополнительно сверены официальные страницы для точных Android-конфигураций:
+- Samsung A14 4G: https://www.samsung.com/ae/smartphones/galaxy-a/galaxy-a14-black-64gb-sm-a145fzkdmea/ и https://www.samsung.com/ph/smartphones/galaxy-a/galaxy-a14-silver-128gb-sm-a145fzsvphl/
+- A35 8/256: https://news.samsung.com/br/samsung-galaxy-a55-5g-e-galaxy-a35-5g-inovacoes-incriveis-e-seguranca-projetada-para-todos
+- A21s 3/32: https://news.samsung.com/pl/galaxy-a21s-nowy-czlonek-rodziny-samsung-galaxy-a
+- A41 4/64: https://news.samsung.com/uk/samsung-announces-the-new-additions-to-a-series-smartphone-lineup-galaxy-a71-5g-galaxy-a51-5g-and-galaxy-a41
+- A50 4/64: https://www.samsung.com/us/business/support/owners/product/galaxy-a50-verizon/
+- Redmi 10 2022 4/64 и 4/128: https://www.mi.com/ng/product/redmi-10-2022/specs/
+- Redmi 15 4G 8/256: https://www.mi.com/global/product/redmi-15/specs/
+
+101 строка готова к использованию после подтверждения импорта. Остальные 9 видны в отчёте: A10, неуточнённые A17/A23, Redmi 9/A2+ с неизвестной ОЗУ, nova Y63, ZTE A36/A76 и TECNO 3/128. Неизвестные параметры не заменяются предположениями. Подробнее — PRICE_GUIDE_MAPPING.md.
+
+Logobook.pdf использован только для оригинальных векторных контуров знака и цвета #292970 со страницы 3. PDF не публикуется целиком.

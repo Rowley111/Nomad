@@ -17,7 +17,10 @@ export default function Valuator({ state, commit, notify }) {
   const model = state.catalog.find((m) => m.name === input.model);
   const configs = model?.configs ?? [];
   const prices = state.prices.filter((p) => configKey(p) === configKey(input));
-  const price = prices.find((p) => p.id === priceId) ?? prices[0];
+  const price =
+    prices.find((p) => p.id === priceId) ??
+    prices.find((p) => p.source !== "owner-guide") ??
+    prices[0];
   let result, error;
   try {
     result = evaluate(input, price, state.policy);
@@ -37,7 +40,7 @@ export default function Valuator({ state, commit, notify }) {
       <section className="panel">
         <h2>Устройство клиента</h2>
         <p className="muted">
-          Астана · Сохранённый прайс владельца · Локальный режим
+          Астана · Ваш справочник скупки · Локальный режим
         </p>
         <div className="formgrid">
           <label className="field wide">
@@ -104,132 +107,139 @@ export default function Valuator({ state, commit, notify }) {
             max="100"
             onChange={(v) => update("battery", v)}
           />
-          <Field
-            label="Циклы (необязательно)"
-            value={input.cycles}
-            type="number"
-            min="0"
-            onChange={(v) => update("cycles", v)}
-          />
-          {["box", "charger"].map((k, i) => (
-            <label className="check" key={k}>
-              <input
-                type="checkbox"
-                checked={input[k]}
-                onChange={(e) => update(k, e.target.checked)}
+          <details className="wide inspection">
+            <summary>Комплект, диагностика и расходы</summary>
+            <div className="formgrid">
+              <Field
+                label="Циклы (необязательно)"
+                value={input.cycles}
+                type="number"
+                min="0"
+                onChange={(v) => update("cycles", v)}
               />
-              {["Коробка", "Зарядное устройство в комплекте"][i]}
-            </label>
-          ))}
-          <Field
-            label="Другие принадлежности"
-            value={input.accessories}
-            onChange={(v) => update("accessories", v)}
-          />
-          <Select
-            label="История ремонта"
-            value={input.repairHistory}
-            onChange={(v) => update("repairHistory", v)}
-            options={[
-              ["unknown", "Не проверена"],
-              ["none", "Ремонта не было (проверено)"],
-              ["repaired", "Был ремонт (проверено)"],
-            ]}
-          />
-          <Field
-            label="Заменённые детали"
-            value={input.parts}
-            onChange={(v) => update("parts", v)}
-          />
-          {applicable.map(([key, value]) => (
-            <Select
-              key={key}
-              label={
-                {
-                  sensor: "Сенсор",
-                  cameras: "Камеры",
-                  network: "Связь",
-                  charging: "Зарядка",
-                  faceid: "Face ID",
-                }[key]
-              }
-              value={value}
-              options={checks}
-              onChange={(v) => update("checks", { ...input.checks, [key]: v })}
-            />
-          ))}
-          <Select
-            label="Блокировки и аккаунты"
-            value={input.locks}
-            onChange={(v) => update("locks", v)}
-            options={[
-              ["unknown", "Не проверено"],
-              ["checked", "Проверено вручную"],
-              ["problem", "Проблема"],
-            ]}
-          />
-          <fieldset className="wide">
-            <legend>Серьёзные дефекты → ручная диагностика</legend>
-            {[
-              ["glass", "Трещины стекла"],
-              ["matrix", "Повреждение матрицы"],
-              ["liquid", "Следы жидкости"],
-              ["swelling", "Вздутие АКБ"],
-            ].map(([k, t]) => (
-              <label className="check" key={k}>
-                <input
-                  type="checkbox"
-                  checked={input.defects.includes(k)}
-                  onChange={(e) =>
-                    update(
-                      "defects",
-                      e.target.checked
-                        ? [...input.defects, k]
-                        : input.defects.filter((x) => x !== k),
-                    )
+              {["box", "charger"].map((k, i) => (
+                <label className="check" key={k}>
+                  <input
+                    type="checkbox"
+                    checked={input[k]}
+                    onChange={(e) => update(k, e.target.checked)}
+                  />
+                  {["Коробка", "Зарядное устройство в комплекте"][i]}
+                </label>
+              ))}
+              <Field
+                label="Другие принадлежности"
+                value={input.accessories}
+                onChange={(v) => update("accessories", v)}
+              />
+              <Select
+                label="История ремонта"
+                value={input.repairHistory}
+                onChange={(v) => update("repairHistory", v)}
+                options={[
+                  ["unknown", "Не проверена"],
+                  ["none", "Ремонта не было (проверено)"],
+                  ["repaired", "Был ремонт (проверено)"],
+                ]}
+              />
+              <Field
+                label="Заменённые детали"
+                value={input.parts}
+                onChange={(v) => update("parts", v)}
+              />
+              {applicable.map(([key, value]) => (
+                <Select
+                  key={key}
+                  label={
+                    {
+                      sensor: "Сенсор",
+                      cameras: "Камеры",
+                      network: "Связь",
+                      charging: "Зарядка",
+                      faceid: "Face ID",
+                    }[key]
+                  }
+                  value={value}
+                  options={checks}
+                  onChange={(v) =>
+                    update("checks", { ...input.checks, [key]: v })
                   }
                 />
-                {t}
-              </label>
-            ))}
-          </fieldset>
-          <Select
-            label="Сценарий"
-            value={input.scenario}
-            onChange={(v) => update("scenario", v)}
-            options={[
-              ["asis", "Продать как есть"],
-              ["repair", "После ремонта (серьёзные дефекты — диагностика)"],
-            ]}
-          />
-          {input.scenario === "repair" && (
-            <Field
-              label="Ремонт, ₸"
-              value={input.repair}
-              type="number"
-              min="0"
-              onChange={(v) => update("repair", v)}
-            />
-          )}
-          <Field
-            label="Прямые расходы продажи, ₸"
-            value={input.expenses}
-            type="number"
-            min="0"
-            onChange={(v) => update("expenses", v)}
-          />
-          <Field
-            label="Цена продавца, ₸ (необязательно)"
-            value={input.ask}
-            type="number"
-            min="0"
-            onChange={(v) => update("ask", v)}
-          />
-          <Field
-            label="Примечание"
-            value={input.note}
-            onChange={(v) => update("note", v)}
-          />
+              ))}
+              <Select
+                label="Блокировки и аккаунты"
+                value={input.locks}
+                onChange={(v) => update("locks", v)}
+                options={[
+                  ["unknown", "Не проверено"],
+                  ["checked", "Проверено вручную"],
+                  ["problem", "Проблема"],
+                ]}
+              />
+              <fieldset className="wide">
+                <legend>Серьёзные дефекты → ручная диагностика</legend>
+                {[
+                  ["glass", "Трещины стекла"],
+                  ["matrix", "Повреждение матрицы"],
+                  ["liquid", "Следы жидкости"],
+                  ["swelling", "Вздутие АКБ"],
+                ].map(([k, t]) => (
+                  <label className="check" key={k}>
+                    <input
+                      type="checkbox"
+                      checked={input.defects.includes(k)}
+                      onChange={(e) =>
+                        update(
+                          "defects",
+                          e.target.checked
+                            ? [...input.defects, k]
+                            : input.defects.filter((x) => x !== k),
+                        )
+                      }
+                    />
+                    {t}
+                  </label>
+                ))}
+              </fieldset>
+              <Select
+                label="Сценарий"
+                value={input.scenario}
+                onChange={(v) => update("scenario", v)}
+                options={[
+                  ["asis", "Продать как есть"],
+                  ["repair", "После ремонта (серьёзные дефекты — диагностика)"],
+                ]}
+              />
+              {input.scenario === "repair" && (
+                <Field
+                  label="Ремонт, ₸"
+                  value={input.repair}
+                  type="number"
+                  min="0"
+                  onChange={(v) => update("repair", v)}
+                />
+              )}
+              <Field
+                label="Прямые расходы продажи, ₸"
+                value={input.expenses}
+                type="number"
+                min="0"
+                onChange={(v) => update("expenses", v)}
+              />
+              <Field
+                label="Цена продавца, ₸ (необязательно)"
+                value={input.ask}
+                type="number"
+                min="0"
+                onChange={(v) => update("ask", v)}
+              />
+              <Field
+                label="Примечание"
+                value={input.note}
+                onChange={(v) => update("note", v)}
+              />
+            </div>
+          </details>
         </div>
       </section>
       <section className="panel result">
@@ -253,7 +263,7 @@ export default function Valuator({ state, commit, notify }) {
                 onChange={setPriceId}
                 options={prices.map((x) => [
                   x.id,
-                  `${x.base.screen}/${x.base.body}, коробка ${x.base.box ? "есть" : "нет"}, АКБ ${x.base.battery ?? "неизвестно"}`,
+                  `${x.source === "owner-guide" ? "Справочник скупки" : "Ручная витрина"} · ${x.base.screen}/${x.base.body}, коробка ${x.base.box == null ? "не указана" : x.base.box ? "есть" : "нет"}, АКБ ${x.base.battery ?? "неизвестно"}`,
                 ])}
               />
             )}
@@ -263,16 +273,51 @@ export default function Valuator({ state, commit, notify }) {
             <p className="muted">
               {price.note}. {result.quality}
             </p>
-            {result.restrictions.map((x) => (
-              <p className="warning" key={x}>
-                {x}
-              </p>
-            ))}
+            {!!result.restrictions.length && (
+              <details>
+                <summary>
+                  Что нужно проверить ({result.restrictions.length})
+                </summary>
+                {result.restrictions.map((x) => (
+                  <p className="warning" key={x}>
+                    {x}
+                  </p>
+                ))}
+              </details>
+            )}
+            {result.guide && (
+              <div className="offer-hero">
+                <span>Предварительная скупка по вашему прайсу</span>
+                <strong>
+                  {money(result.preliminaryMin)} –{" "}
+                  {money(result.preliminaryMax)}
+                </strong>
+                <p>
+                  Скупка файла: {money(result.basisBuyMin)} –{" "}
+                  {money(result.basisBuyMax)}.<br />
+                  Снижение владельца: {money(result.reduction)}
+                  {result.adjustments.length
+                    ? ". Дополнительно учтены отличия состояния"
+                    : ""}
+                  .
+                </p>
+                <p className="source-note">
+                  До проверки устройства. Это справочный диапазон, не безопасный
+                  максимум закупа.
+                </p>
+                {result.preliminaryMax === 0 && (
+                  <p className="warning">
+                    Снижение и расходы исчерпали ориентир: проверьте политику,
+                    закуп нецелесообразен.
+                  </p>
+                )}
+              </div>
+            )}
             <span>Рекомендованная витрина</span>
             <strong>{money(result.showcase)}</strong>
             {[
-              ["Продажа с торгом", result.sale],
-              ["Быстрая продажа", result.quick],
+              ["Продажа с торгом (консервативно)", result.sale],
+              ["Быстрая продажа (консервативно)", result.quick],
               ["Рекомендуемая скупка", result.recommendedBuy],
               ["Максимальный закуп", result.maxBuy],
               ["Рассрочка +" + state.policy.markup + "%", result.installment],
@@ -280,6 +325,14 @@ export default function Valuator({ state, commit, notify }) {
                 "Прибыль по цене продавца до общих расходов и налогов",
                 result.expectedProfit,
               ],
+              ...(result.guide
+                ? [
+                    [
+                      "Ожидаемая разница по предварительной скупке до общих расходов и налогов",
+                      result.guideProfit,
+                    ],
+                  ]
+                : []),
               ["Ломбард", null],
             ].map(([t, v]) => (
               <div className="resultline" key={t}>
@@ -314,11 +367,29 @@ export default function Valuator({ state, commit, notify }) {
                   сопоставимых данных АКБ.
                 </p>
               )}
+              {result.guide && (
+                <>
+                  <p>
+                    Диапазон продажи после торга: {money(result.sale)} –{" "}
+                    {money(result.saleMax)}. Быстрая продажа:{" "}
+                    {money(result.quick)} – {money(result.quickMax)}. В расчёте
+                    максимума используется нижняя цена быстрой продажи.
+                  </p>
+                  <p>
+                    Снижение {money(result.reduction)} применяется один раз к
+                    скупке файла, а не к витрине. Предварительная скупка =
+                    скупка файла − снижение + отличия состояния − прямые
+                    расходы/ремонт по сценарию. Рекомендуемая скупка после
+                    диагностики не превышает безопасный максимум.
+                  </p>
+                </>
+              )}
               <p>
                 Максимум = быстрая продажа − ремонт в сценарии «После ремонта» −
                 расходы − {money(state.policy.risk)} резерва риска −{" "}
                 {money(state.policy.minProfit)} минимальной прибыли. Это
-                политика магазина.
+                политика магазина. Для справочника максимум дополнительно
+                ограничен верхней границей предварительной скупки.
               </p>
               <p>
                 Комиссия банка: {state.policy.bankFee}% (настройка владельца).
@@ -344,11 +415,11 @@ export default function Valuator({ state, commit, notify }) {
                 Сохранить оценку
               </button>
               <button
-                disabled={result.recommendedBuy == null}
+                disabled={result.customerOffer == null}
                 onClick={async () => {
                   try {
                     await navigator.clipboard.writeText(
-                      `Nomad Mobile, Астана: предварительное предложение ${money(result.recommendedBuy)} за ${input.model} ${input.storage} ГБ. Итоговая сумма после проверки устройства.`,
+                      `Nomad Mobile, Астана: предварительное предложение ${money(result.customerOffer)} за ${input.model} ${input.storage} ГБ. Итоговая сумма после проверки устройства.`,
                     );
                     notify("Предложение скопировано");
                   } catch {
@@ -363,7 +434,9 @@ export default function Valuator({ state, commit, notify }) {
                 onClick={() => {
                   setPurchaseToken(uid());
                   setConfirm(true);
-                  setBuy(String(result.recommendedBuy ?? ""));
+                  setBuy(
+                    String(result.recommendedBuy ?? result.customerOffer ?? ""),
+                  );
                 }}
               >
                 Оформить закупку

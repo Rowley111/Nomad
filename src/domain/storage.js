@@ -76,21 +76,67 @@ export function validateState(s) {
         throw new Error("Продажа не согласована со статусом");
     }
   });
-  if (!s.policy || Object.keys(policyDefaults).some(k => !(k in s.policy))) throw new Error('Неполная политика');
-  Object.values(s.policy).forEach(v => amount(v));
+  if (!s.policy || Object.keys(policyDefaults).some((k) => !(k in s.policy)))
+    throw new Error("Неполная политика");
+  Object.values(s.policy).forEach((v) => amount(v));
   const names = new Set();
   for (const model of s.catalog) {
-    if (!model || typeof model.name !== 'string' || !model.name.trim() || !Array.isArray(model.configs) || names.has(model.name)) throw new Error('Некорректный каталог');
+    if (
+      !model ||
+      typeof model.name !== "string" ||
+      !model.name.trim() ||
+      !Array.isArray(model.configs) ||
+      names.has(model.name)
+    )
+      throw new Error("Некорректный каталог");
     names.add(model.name);
-    for (const config of model.configs) { if (amount(config.storage) <= 0 || (config.ram != null && amount(config.ram) <= 0)) throw new Error('Некорректная память'); }
+    for (const config of model.configs) {
+      if (
+        amount(config.storage) <= 0 ||
+        (config.ram != null && amount(config.ram) <= 0)
+      )
+        throw new Error("Некорректная память");
+    }
   }
   const priceIds = new Set();
   for (const price of s.prices) {
-    if (!price.id || priceIds.has(price.id) || typeof price.model !== 'string' || !price.base || !['ideal','good','worn'].includes(price.base.screen) || !['ideal','good','worn'].includes(price.base.body) || typeof price.base.box !== 'boolean') throw new Error('Некорректная запись прайса');
-    priceIds.add(price.id); amount(price.price); amount(price.storage);
-    if (!Number.isFinite(Date.parse(price.checkedAt))) throw new Error('Некорректная дата прайса');
+    if (
+      !price.id ||
+      priceIds.has(price.id) ||
+      typeof price.model !== "string" ||
+      !price.base ||
+      !["ideal", "good", "worn"].includes(price.base.screen) ||
+      !["ideal", "good", "worn"].includes(price.base.body) ||
+      (typeof price.base.box !== "boolean" &&
+        !(price.source === "owner-guide" && price.base.box == null))
+    )
+      throw new Error("Некорректная запись прайса");
+    priceIds.add(price.id);
+    amount(price.price);
+    amount(price.storage);
+    if (price.source === "owner-guide") {
+      for (const key of [
+        "buyMin",
+        "buyMax",
+        "saleMin",
+        "saleMax",
+        "quickMin",
+        "quickMax",
+      ])
+        amount(price[key], key);
+      if (
+        price.buyMin > price.buyMax ||
+        price.saleMin > price.saleMax ||
+        price.quickMin > price.quickMax
+      )
+        throw new Error("Обратный диапазон прайса");
+    }
+    if (!Number.isFinite(Date.parse(price.checkedAt)))
+      throw new Error("Некорректная дата прайса");
   }
-  for (const a of s.assessments) if (!a.id || !a.input || typeof a.input.model !== 'string') throw new Error('Некорректная сохранённая оценка');
+  for (const a of s.assessments)
+    if (!a.id || !a.input || typeof a.input.model !== "string")
+      throw new Error("Некорректная сохранённая оценка");
   return s;
 }
 export function purchase(state, snapshot, buy, reason = "") {

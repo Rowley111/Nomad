@@ -17,6 +17,13 @@ export const columns = [
   "box",
   "battery",
   "note",
+  "buyMin",
+  "buyMax",
+  "saleMin",
+  "saleMax",
+  "quickMin",
+  "quickMax",
+  "sourceName",
 ];
 export function validatePrice(row, catalog) {
   const x = structuredClone(row);
@@ -41,9 +48,10 @@ export function validatePrice(row, catalog) {
     x.channel !== "store-cash"
   )
     throw new Error("Поддерживается Астана / KZT / store-cash");
-  if (x.source !== "owner")
+  const guide = x.source === "owner-guide";
+  if (x.source !== "owner" && !guide)
     throw new Error(
-      "Этап 1: прайс владельца (owner); демо и объявления не смешиваются",
+      "Поддерживаются прайс владельца (owner) и справочник (owner-guide)",
     );
   if (!["physical", "esim", "other"].includes(x.sim))
     throw new Error("Некорректный вариант SIM");
@@ -58,17 +66,34 @@ export function validatePrice(row, catalog) {
   const b = x.base ?? {
     screen: x.screen,
     body: x.body,
-    box: x.box === true || x.box === "true",
+    box:
+      guide && (x.box === "" || x.box == null)
+        ? null
+        : x.box === true || x.box === "true",
     battery: x.battery === "" || x.battery == null ? null : Number(x.battery),
   };
   if (
     !["ideal", "good", "worn"].includes(b.screen) ||
     !["ideal", "good", "worn"].includes(b.body) ||
-    typeof b.box !== "boolean"
+    (typeof b.box !== "boolean" && !(guide && b.box == null))
   )
     throw new Error("Некорректное базовое состояние");
   if (b.battery != null && amount(b.battery) > 100)
     throw new Error("АКБ вне диапазона");
+  if (guide) {
+    for (const key of [
+      "buyMin",
+      "buyMax",
+      "saleMin",
+      "saleMax",
+      "quickMin",
+      "quickMax",
+    ])
+      x[key] = amount(x[key], key);
+    if (x.buyMin > x.buyMax || x.saleMin > x.saleMax || x.quickMin > x.quickMax)
+      throw new Error("Обратный диапазон справочника");
+    if (!x.sourceName?.trim()) throw new Error("Укажите документ-источник");
+  }
   x.base = b;
   return x;
 }

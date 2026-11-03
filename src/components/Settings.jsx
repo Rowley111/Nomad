@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import { Field, Download } from "./Fields.jsx";
 import { previewBackup } from "../domain/imports.js";
-import { amount } from "../domain/valuation.js";
+import { amount, guidePolicyDefaults } from "../domain/valuation.js";
 const labels = {
+  guideIphoneDiscount: "Снижение скупки iPhone из справочника, ₸",
+  guideAndroidDiscount: "Снижение скупки Android из справочника, ₸",
   bargain: "Резерв торга, %",
   quick: "Скидка быстрой продажи, %",
   minProfit: "Минимальная прибыль, ₸",
@@ -17,7 +19,10 @@ const labels = {
   battery: "АКБ ниже 80%, ₸",
 };
 export default function Settings({ state, commit, notify }) {
-  const [policy, setPolicy] = useState(state.policy),
+  const [policy, setPolicy] = useState({
+      ...guidePolicyDefaults,
+      ...state.policy,
+    }),
     [catalog, setCatalog] = useState(JSON.stringify(state.catalog, null, 2)),
     [backup, setBackup] = useState(null),
     [restoreText, setRestoreText] = useState("");
