@@ -187,9 +187,28 @@ export default function Settings({ state, commit, notify }) {
               Будет заменено локальное рабочее пространство: склад{" "}
               {backup.inventory.length}, прайс {backup.prices.length}, оценки{" "}
               {backup.assessments.length}, события {backup.events.length}.
-              Текущая версия сохраняется в nomad-workspace-v2-before-write.
-              Старый ключ v1 не меняется.
+              Ремонты: {backup.repairOrders?.length ?? 0}, оплаты:{" "}
+              {(backup.repairOrders ?? []).reduce(
+                (a, x) => a + x.payments.length,
+                0,
+              )}
+              , материалы в заказах:{" "}
+              {(backup.repairOrders ?? []).reduce(
+                (a, x) => a + x.materials.length,
+                0,
+              )}
+              . Сейчас сохранено ремонтов: {state.repairOrders?.length ?? 0}.
+              Восстановление полностью заменит эти записи данными из копии,
+              включая ремонты. Текущая версия сохраняется в
+              nomad-workspace-v2-before-write. Старый ключ v1 не меняется.
             </p>
+            {!backup.repairSchemaVersion && !!state.repairOrders?.length && (
+              <p className="warning">
+                В этой старой копии нет раздела ремонтов. При подтверждении
+                текущие ремонты будут заменены пустым разделом. Сначала скачайте
+                полную копию текущих данных.
+              </p>
+            )}
             <button
               onClick={() =>
                 run(() => {

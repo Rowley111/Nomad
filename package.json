@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node --test tests/domain.test.js",
+    "test": "node --test tests/domain.test.js tests/repairs.test.js tests/repair-storage.test.js",
     "lint": "eslint .",
     "test:ui": "playwright test"
   },
