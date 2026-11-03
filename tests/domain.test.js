@@ -375,3 +375,131 @@ test("DOCX-таблицы: тысячи/ТБ, eSIM Air, неоднозначны
   assert.throws(() => parseGuideTables([], "invalid.docx", "2026-11-04"));
   assert.throws(() => previewGuide({ entries: [] }, catalogDefaults));
 });
+
+test("защищённая настройка: AES-GCM, подмена данных/ключа/ID отвергается", async () => {
+  const { decryptSetup, loadSetupGuide } = await import(
+    "../src/domain/setup.js"
+  );
+  const id = "a".repeat(32),
+    key = crypto.getRandomValues(new Uint8Array(32)),
+    iv = crypto.getRandomValues(new Uint8Array(12));
+  const request = { id, key: Buffer.from(key).toString("base64url") };
+  const imported = await crypto.subtle.importKey("raw", key, "AES-GCM", false, [
+    "encrypt",
+  ]);
+  const encrypted = await crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv,
+      additionalData: new TextEncoder().encode("nomad-owner-setup:v1:" + id),
+    },
+    imported,
+    new TextEncoder().encode(JSON.stringify({ test: "ok" })),
+  );
+  const envelope = {
+    version: 1,
+    algorithm: "AES-256-GCM",
+    iv: Buffer.from(iv).toString("base64url"),
+    ciphertext: Buffer.from(encrypted).toString("base64url"),
+  };
+  assert.deepEqual(await decryptSetup(envelope, request), { test: "ok" });
+  await assert.rejects(() =>
+    decryptSetup(envelope, {
+      ...request,
+      key: Buffer.alloc(32).toString("base64url"),
+    }),
+  );
+  await assert.rejects(() =>
+    decryptSetup(envelope, { ...request, id: "b".repeat(32) }),
+  );
+  await assert.rejects(() =>
+    decryptSetup(
+      { ...envelope, ciphertext: envelope.ciphertext.slice(0, -2) },
+      request,
+    ),
+  );
+  let path, options;
+  const decoded = await loadSetupGuide(request, {
+    fetcher: async (p, o) => {
+      path = p;
+      options = o;
+      return new Response(JSON.stringify(envelope));
+    },
+  });
+  assert.deepEqual(decoded, { test: "ok" });
+  assert.equal(path, "/setup/" + id + ".json");
+  assert.equal(options.credentials, "omit");
+  assert.equal(options.redirect, "error");
+  await assert.rejects(() =>
+    loadSetupGuide(request, {
+      fetcher: async () => new Response("x", { status: 404 }),
+    }),
+  );
+  await assert.rejects(() =>
+    loadSetupGuide(request, {
+      fetcher: async () => new Response("x".repeat(400001)),
+    }),
+  );
+});
+test("ссылка удаляется из адреса, не принимает произвольные пути", async () => {
+  const { captureSetupRequest } = await import("../src/domain/setup.js");
+  let result;
+  const h = { state: null, replaceState: (_s, _t, url) => (result = url) };
+  const r = captureSetupRequest(
+    {
+      hash: "#nomad-setup=" + "a".repeat(32) + "." + "b".repeat(43),
+      pathname: "/",
+      search: "?x=1",
+    },
+    h,
+  );
+  assert.equal(r.id, "a".repeat(32));
+  assert.equal(result, "/?x=1");
+  assert.ok(
+    captureSetupRequest(
+      { hash: "#nomad-setup=../x.key", pathname: "/", search: "" },
+      h,
+    ).error,
+  );
+});
+test("настройка добавляет только недостающие конфигурации, сохраняет склад/ручные цены/политику и идемпотентна", async () => {
+  const { applySetupGuide } = await import("../src/domain/setup.js");
+  const id = "a".repeat(32),
+    gp = {
+      ...price,
+      source: "owner-guide",
+      sourceName: "Тест",
+      buyMin: 50000,
+      buyMax: 60000,
+      saleMin: 80000,
+      saleMax: 85000,
+      quickMin: 75000,
+      quickMax: 80000,
+    };
+  const guide = {
+    format: "nomad-owner-guide",
+    version: 1,
+    sourceName: "Тест",
+    documentDate: "2026-11-04",
+    entries: [gp],
+  };
+  let s = purchase(emptyState(), calc(), 0);
+  s.policy.guideIphoneDiscount = 25000;
+  s = mergePrices(s, [price]);
+  const before = JSON.stringify(s.inventory);
+  const r = applySetupGuide(s, guide, id);
+  assert.equal(r.report.added, 1);
+  assert.equal(r.state.prices.length, 2);
+  assert.equal(JSON.stringify(r.state.inventory), before);
+  assert.equal(r.state.policy.guideIphoneDiscount, 25000);
+  assert.equal(applySetupGuide(r.state, guide, id).state, r.state);
+  r.state.prices[1].base.body = "worn";
+  r.state.prices[1].buyMin = 1000;
+  const next = applySetupGuide(r.state, guide, "b".repeat(32));
+  assert.equal(next.report.added, 0);
+  assert.equal(next.report.kept, 1);
+  assert.equal(next.state.prices[1].buyMin, 1000);
+  assert.equal(next.state.prices.length, 2);
+  assert.equal(s.prices.length, 1);
+  assert.throws(() => applySetupGuide(s, { entries: [] }, id));
+});

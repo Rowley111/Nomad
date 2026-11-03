@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import Valuator from "./components/Valuator.jsx";
@@ -9,7 +9,20 @@ import GuideImport from "./components/GuideImport.jsx";
 import { readState, KEY, analytics, validateState } from "./domain/storage.js";
 import { money } from "./domain/valuation.js";
 import { Download } from "./components/Fields.jsx";
+import {
+  captureSetupRequest,
+  loadSetupGuide,
+  applySetupGuide,
+} from "./domain/setup.js";
+const startupSetupRequest = captureSetupRequest(
+  window.location,
+  window.history,
+);
 export function App() {
+  const [setupRequest, setSetupRequest] = useState(startupSetupRequest);
+  const [settingUp, setSettingUp] = useState(
+    Boolean(setupRequest && !setupRequest.error),
+  );
   const [initial] = useState(() => {
     try {
       return { state: readState(localStorage) };
@@ -34,6 +47,63 @@ export function App() {
     current.current = next;
     setState(next);
   }
+  useEffect(() => {
+    const receiveSetup = () => {
+      const request = captureSetupRequest(window.location, window.history);
+      if (request) {
+        setMessage("");
+        setSettingUp(!request.error);
+        setSetupRequest(request);
+      }
+    };
+    window.addEventListener("hashchange", receiveSetup);
+    return () => window.removeEventListener("hashchange", receiveSetup);
+  }, []);
+  useEffect(() => {
+    if (!setupRequest || !initial.state) {
+      setSettingUp(false);
+      return;
+    }
+    if (setupRequest.error) {
+      setMessage(setupRequest.error);
+      return;
+    }
+    const controller = new AbortController();
+    const request = { ...setupRequest };
+    (async () => {
+      try {
+        const existing = (current.current.setupImports ?? []).find(
+          (x) => x.id === setupRequest.id,
+        );
+        if (existing) {
+          setMessage("Этот прайс уже подключён. Выберите модель для оценки.");
+          return;
+        }
+        const guide = await loadSetupGuide(request, {
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+        let report;
+        commit((state) => {
+          const result = applySetupGuide(state, guide, setupRequest.id);
+          report = result.report;
+          return result.state;
+        });
+        setMessage(
+          `Готово! Прайс подключён: добавлено ${report.added}, прежних цен сохранено ${report.kept}. Требуют уточнения: ${report.pending}. Выберите модель и память — оценка появится автоматически.`,
+        );
+      } catch (error) {
+        if (!controller.signal.aborted) setMessage(error.message);
+      } finally {
+        request.key = "";
+        if (!controller.signal.aborted) {
+          setupRequest.key = "";
+          setSettingUp(false);
+        }
+      }
+    })();
+    return () => controller.abort();
+  }, [initial, setupRequest]);
   if (initial.error)
     return (
       <main>
@@ -111,6 +181,11 @@ export function App() {
             <h1>{tabs.find(([k]) => k === tab)?.[1]}</h1>
           </div>
         </header>
+        {settingUp && (
+          <div className="notice" role="status">
+            Подключаю ваш прайс автоматически…
+          </div>
+        )}
         {message && (
           <div className="notice" role="status">
             {message}

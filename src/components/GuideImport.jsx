@@ -27,13 +27,28 @@ export default function GuideImport({ state, commit, notify }) {
             : "Подключите ваш прайс телефонов"}
         </h2>
         <p>
-          Загрузите DOCX один раз. Сайт сохранит цены в этом браузере и будет
-          оценивать выбранный телефон автоматически. iPhone: снижение{" "}
-          {money(state.policy.guideIphoneDiscount ?? 30000)}; Android:{" "}
-          {money(state.policy.guideAndroidDiscount ?? 0)}. Изменить можно в
-          настройках.
+          {count
+            ? "Прайс уже сохранён. Выберите модель и память — оценка появится автоматически."
+            : "Загрузите DOCX один раз. Сайт сохранит цены в этом браузере и будет оценивать выбранный телефон автоматически."}{" "}
+          iPhone: снижение {money(state.policy.guideIphoneDiscount ?? 30000)};
+          Android: {money(state.policy.guideAndroidDiscount ?? 0)}. Изменить
+          можно в настройках.
         </p>
       </div>
+      {!!state.setupImports?.at(-1)?.pendingRows?.length && (
+        <details>
+          <summary>
+            Конфигурации для уточнения (
+            {state.setupImports.at(-1).pendingRows.length})
+          </summary>
+          {state.setupImports.at(-1).pendingRows.map((row, i) => (
+            <p key={i}>
+              {row.model ?? "Строка документа"} {row.storage ?? ""}:{" "}
+              {row.message}
+            </p>
+          ))}
+        </details>
+      )}
       <details open={!count}>
         <summary>
           {count

@@ -64,6 +64,18 @@ export function validateState(s) {
     "catalog",
   ])
     if (!Array.isArray(s[k])) throw new Error("Нет массива " + k);
+  if (
+    s.setupImports !== undefined &&
+    (!Array.isArray(s.setupImports) ||
+      s.setupImports.length > 100 ||
+      s.setupImports.some(
+        (x) =>
+          !x ||
+          !/^[a-f0-9]{32}$/.test(x.id) ||
+          !Number.isFinite(Date.parse(x.at)),
+      ))
+  )
+    throw new Error("Некорректная история настройки");
   const ids = new Set();
   s.inventory.forEach((x) => {
     validateItem(x);
