@@ -108,6 +108,32 @@ function assertUnique(rows, label) {
 function optionalText(value, label) {
   if (value !== undefined) text(value, label, true);
 }
+const contactLimits = { masterName: 120, clientName: 120, clientPhone: 64, clientNote: 2000 };
+const contactLabels = { masterName: "мастер", clientName: "имя клиента", clientPhone: "телефон клиента", clientNote: "примечание к клиенту" };
+function contactValue(value, key) {
+  const hasControl = typeof value === "string" && [...value].some((character) => {
+    const code = character.codePointAt(0);
+    return code === 127 || (code < 32 && !(key === "clientNote" && [9, 10, 13].includes(code)));
+  });
+  if (typeof value !== "string" || value.length > contactLimits[key] ||
+      hasControl)
+    throw new Error("Некорректное поле: " + contactLabels[key]);
+  const result = value.trim();
+  if (key === "clientPhone" && result) {
+    const digits = result.replace(/\D/g, "");
+    if (!/^\+?[\d ().-]+$/.test(result) || digits.length < 7 || digits.length > 20)
+      throw new Error("Телефон клиента: 7–20 цифр, допустимы +, пробелы, скобки и дефисы");
+  }
+  return result;
+}
+function contacts(input, previous = {}) {
+  const result = {};
+  for (const key of Object.keys(contactLimits)) {
+    const value = input[key] === undefined ? previous[key] : input[key];
+    if (value !== undefined) result[key] = contactValue(value, key);
+  }
+  return result;
+}
 function validateVoid(line) {
   if (line.voided !== undefined && typeof line.voided !== "boolean")
     throw new Error("Некорректная отмена расхода");
@@ -122,6 +148,7 @@ function validateOrder(order, typeIds, materialIds) {
   if (!typeIds.has(order.repairTypeId))
     throw new Error("Неизвестный вид ремонта в заказе");
   text(order.description, "описание", true);
+  contacts(order);
   date(order.receivedOn);
   timestamp(order.createdAt);
   if (!STATUSES.includes(order.status))
@@ -369,6 +396,7 @@ export function createRepair(state, input, operationId) {
     repairTypeId: type.id,
     repairTypeName: type.name,
     description: text(input.description ?? "", "описание", true),
+    ...contacts(input),
     receivedOn: date(input.receivedOn),
     status: "accepted",
     plannedRevenue:
@@ -415,6 +443,7 @@ export function updateRepair(state, id, input, reason = "") {
   if (!type) throw new Error("Выберите действующий вид ремонта");
   const after = {
     ...before,
+    ...contacts(input, before),
     device: text(input.device ?? before.device, "устройство"),
     repairTypeId: type.id,
     repairTypeName:

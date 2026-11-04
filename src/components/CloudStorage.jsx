@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { readState, validateState, KEY } from "../domain/storage.js";
 import { ensureRepairState } from "../domain/repairs.js";
 const collectionLabels = {
+  cashAccounts: "Касса и банк", cashCategories: "Категории денег", employees: "Сотрудники", cashTransactions: "Денежные операции", cashEvents: "Журнал кассы",
   inventory: "Склад", prices: "Прайс", priceHistory: "История прайса",
   assessments: "Оценки", events: "История склада и продаж", catalog: "Каталог моделей",
   repairOrders: "Ремонты", repairTypes: "Типы ремонта", materialCatalog: "Справочник материалов",

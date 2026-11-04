@@ -7,12 +7,15 @@ import { amount } from "./valuation.js";
 import { catalogDefaults } from "./catalog.js";
 import { policyDefaults } from "./valuation.js";
 import { CATALOG_REVISION, upgradeCatalog, validateCatalog } from "./catalog-management.js";
+import { cashDefaults, ensureCashState, validateCashState } from "./cash.js";
+import { checkedSaleDate, getSalesHistory, saleDay, saleItemSnapshot, salesReport } from "./sales.js";
 export const KEY = "nomad-workspace-v2";
 export const LEGACY = "nomad-inventory-v1";
 export const uid = () => globalThis.crypto.randomUUID();
 export function emptyState() {
   return {
     ...repairDefaults(),
+    ...cashDefaults(),
     schemaVersion: 2,
     mode: "local",
     catalogRevision: CATALOG_REVISION,
@@ -55,10 +58,12 @@ export function readState(storage) {
   if (raw !== null) {
     const previous = validateState(JSON.parse(raw));
     const repaired = ensureRepairState(previous);
-    const upgraded = upgradeCatalog(repaired);
+    const catalogued = upgradeCatalog(repaired);
+    const upgraded = ensureCashState(catalogued);
     if (upgraded !== previous) {
       if (repaired !== previous) storage.setItem(KEY + "-before-repairs-v1", raw);
-      if (upgraded !== repaired) storage.setItem(KEY + "-before-catalog-v1", raw);
+      if (catalogued !== repaired) storage.setItem(KEY + "-before-catalog-v" + CATALOG_REVISION, raw);
+      if (upgraded !== catalogued) storage.setItem(KEY + "-before-cash-v1", raw);
       storage.setItem(KEY, JSON.stringify(upgraded));
     }
     return upgraded;
@@ -104,6 +109,10 @@ export function validateState(s) {
     if (x.sale) {
       amount(x.sale.revenue);
       amount(x.sale.expenses);
+      if (x.sale.soldOn !== undefined && (saleDay(x.sale.soldOn) !== x.sale.soldOn || saleDay(x.sale.at) !== x.sale.soldOn))
+        throw new Error("Некорректная фактическая дата продажи");
+      if (x.sale.createdAt !== undefined && !Number.isFinite(Date.parse(x.sale.createdAt)))
+        throw new Error("Некорректная дата регистрации продажи");
       if (x.status !== "Продан")
         throw new Error("Продажа не согласована со статусом");
     }
@@ -171,6 +180,7 @@ export function validateState(s) {
     if (!a.id || !a.input || typeof a.input.model !== "string")
       throw new Error("Некорректная сохранённая оценка");
   validateRepairState(s);
+  validateCashState(s);
   return s;
 }
 export function purchase(state, snapshot, buy, reason = "") {
@@ -213,36 +223,50 @@ export function purchase(state, snapshot, buy, reason = "") {
     ],
   };
 }
-export function recordSale(state, id, revenue, expenses, method) {
+function prepareSale(item, revenue, expenses, method, soldOn) {
   revenue = amount(revenue, "Выручка");
   expenses = amount(expenses, "Расходы");
   if (!["Наличные", "Перевод", "Карта", "Рассрочка"].includes(method))
     throw new Error("Выберите способ оплаты");
+  const createdAt = new Date().toISOString();
+  const at = soldOn ? checkedSaleDate(soldOn, createdAt) : createdAt;
+  return { id: uid(), revenue, expenses, method, at, soldOn: saleDay(at), createdAt, itemSnapshot: saleItemSnapshot(item) };
+}
+function applySale(state, item, sale) {
+  return {
+    ...state,
+    inventory: state.inventory.map((x) => x.id === item.id ? { ...x, status: "Продан", sale } : x),
+    events: [...state.events, { ...structuredClone(sale), type: "sale", itemId: item.id }],
+  };
+}
+export function recordSale(state, id, revenue, expenses, method, soldOn = "") {
   const item = state.inventory.find((x) => x.id === id);
   if (!item) throw new Error("Товар не найден");
   if (item.sale || item.status === "Продан")
     throw new Error(
       "Продажа уже зарегистрирована или требует проверки старой истории",
     );
-  const sale = {
-    id: uid(),
-    revenue,
-    expenses,
-    method,
-    at: new Date().toISOString(),
-  };
-  return {
-    ...state,
-    inventory: state.inventory.map((x) =>
-      x.id === id ? { ...x, status: "Продан", sale } : x,
-    ),
-    events: [...state.events, { id: uid(), type: "sale", itemId: id, ...sale }],
-  };
+  if (getSalesHistory(state).sales.some((row) => String(row.itemId) === String(id) && !row.returned))
+    throw new Error("Продажа этого товара уже есть в истории. Не создавайте повторную сделку");
+  return applySale(state, item, prepareSale(item, revenue, expenses, method, soldOn));
 }
-export function returnSale(state, id, reason) {
+export function confirmLegacySale(state, id, revenue, expenses, method, soldOn, reason) {
+  const item = state.inventory.find((row) => row.id === id);
+  if (!item || item.status !== "Продан" || item.sale) throw new Error("Нет старой неподтверждённой продажи");
+  if (typeof reason !== "string" || !reason.trim()) throw new Error("Укажите основание подтверждения старой сделки");
+  if (getSalesHistory(state).sales.some((row) => String(row.itemId) === String(id)))
+    throw new Error("Подтверждённая продажа уже есть в журнале");
+  checkedSaleDate(soldOn);
+  const sale = { ...prepareSale(item, revenue, expenses, method, soldOn), historicalConfirmation: true, confirmationReason: reason.trim() };
+  return applySale(state, item, sale);
+}
+export function returnSale(state, id, reason, returnedOn = "") {
   if (!reason.trim()) throw new Error("Укажите причину возврата");
   const item = state.inventory.find((x) => x.id === id);
   if (!item?.sale) throw new Error("Нет подтверждённой продажи");
+  const createdAt = new Date().toISOString();
+  const at = returnedOn ? checkedSaleDate(returnedOn, createdAt) : createdAt;
+  if (saleDay(at) < saleDay(item.sale.at)) throw new Error("Возврат не может быть раньше продажи");
   return {
     ...state,
     inventory: state.inventory.map((x) =>
@@ -254,25 +278,32 @@ export function returnSale(state, id, reason) {
         id: uid(),
         type: "return",
         itemId: id,
-        at: new Date().toISOString(),
+        at,
+        createdAt,
         reason,
-        sale: item.sale,
+        sale: structuredClone(item.sale),
+        refund: item.sale.revenue,
+        itemSnapshot: item.sale.itemSnapshot ?? saleItemSnapshot(item),
       },
     ],
   };
 }
 export function analytics(state) {
-  const stock = state.inventory.filter((x) => x.status !== "Продан");
-  const sold = state.inventory.filter((x) => x.sale);
+  const history = getSalesHistory(state), report = salesReport(state);
+  const active = new Set(history.sales.filter((row) => !row.returned).map((row) => String(row.itemId)));
+  const stock = state.inventory.filter((x) => x.status !== "Продан" && !active.has(String(x.id)));
   return {
     stock: stock.length,
     invested: stock.reduce((a, x) => a + Number(x.buy), 0),
     expected: stock.reduce((a, x) => a + Number(x.sell) - Number(x.buy), 0),
-    revenue: sold.reduce((a, x) => a + x.sale.revenue, 0),
-    profit: sold.reduce(
-      (a, x) => a + x.sale.revenue - Number(x.buy) - x.sale.expenses,
-      0,
-    ),
-    sold: sold.length,
+    revenue: report.netRevenue,
+    profit: report.profit,
+    sold: report.count,
+    grossRevenue: report.revenue,
+    refunds: report.refunds,
+    returned: report.returnCount,
+    activeSales: history.sales.filter((row) => !row.returned).length,
+    unknownCostCount: report.unknownCostCount,
+    unconfirmedSales: history.unconfirmed.length,
   };
 }

@@ -1,5 +1,5 @@
 import { deviceProfile } from "./catalog.js";
-export const VERSION = "1.2.0";
+export const VERSION = "1.3.0";
 export const policyDefaults = {
   bargain: 0,
   quick: 5,
@@ -96,8 +96,14 @@ export function evaluate(
       status: "no-data",
     };
   const base = amount(price.price, "Цена прайса");
-  const guide = ["owner-guide", "owner-buy"].includes(price.source);
-  const age = (Date.parse(now) - Date.parse(price.checkedAt)) / 86400000;
+  const workbook = price.source === "workbook-reference";
+  const guide = workbook || ["owner-guide", "owner-buy"].includes(price.source);
+  if (workbook) {
+    restrictions.push("Черновой расчёт из Excel: рынок и конфигурация требуют ручной проверки");
+    if (!price.workbook?.priceCheckedOn) restrictions.push("Дата проверки рыночной цены не указана; дата расчёта не является проверкой рынка");
+  }
+  const basisDate = workbook ? price.workbook?.calculatedOn ?? price.calculatedAt : price.checkedAt;
+  const age = (Date.parse(now) - Date.parse(basisDate)) / 86400000;
   if (!Number.isFinite(age) || age < -1)
     throw new Error("Некорректная дата прайса");
   if (age > p.maxAge) restrictions.push("Прайс устарел: подтвердите ориентир");
@@ -144,10 +150,10 @@ export function evaluate(
   const ceiling = Math.floor(quick - costs - p.risk - p.minProfit);
   const manual = restrictions.length > 0;
   const reduction = price.source === "owner-guide" ? guideReduction(input.model, p) : 0;
-  const preliminaryMin = guide
+  const preliminaryMin = guide && price.buyMin != null
     ? Math.max(0, amount(price.buyMin) - reduction + totalAdjustment - costs)
     : null;
-  const preliminaryMax = guide
+  const preliminaryMax = guide && price.buyMax != null
     ? Math.max(0, amount(price.buyMax) - reduction + totalAdjustment - costs)
     : null;
   const maxBuy =
@@ -195,7 +201,7 @@ export function evaluate(
         : maxBuy == null
           ? null
           : Math.max(0, maxBuy - p.negotiation),
-    guideProfit: guide ? sale - preliminaryMin - costs : null,
+    guideProfit: guide && preliminaryMin != null ? sale - preliminaryMin - costs : null,
     basisBuyMin: guide ? price.buyMin : null,
     basisBuyMax: guide ? price.buyMax : null,
     saleMax: guide ? Math.max(0, price.saleMax + totalAdjustment) : sale,
@@ -205,7 +211,7 @@ export function evaluate(
     installmentBankCost: Math.round(
       (showcase * (1 + p.markup / 100) * p.bankFee) / 100,
     ),
-    quality: price.source === "owner-buy" ? "Скупочный прайс владельца; не рыночная статистика" : guide
+    quality: workbook ? "Черновой справочник Excel владельца; рынок не проверен, не котировка OLX" : price.source === "owner-buy" ? "Скупочный прайс владельца; не рыночная статистика" : guide
       ? "Справочный прайс из переписки; не свежий рынок, часть цен расчётная"
       : "Ручной ориентир владельца; не рыночная статистика",
     pawn: null,

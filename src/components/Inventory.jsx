@@ -3,13 +3,16 @@ import { Field, Select, Download } from "./Fields.jsx";
 import { recordSale, returnSale, uid } from "../domain/storage.js";
 import { amount, money, businessDate } from "../domain/valuation.js";
 import { safeCell } from "../domain/imports.js";
+import Sales from "./Sales.jsx";
+import { getSalesHistory, saleToday } from "../domain/sales.js";
 const statuses = ["В наличии", "На диагностике/ремонте", "Резерв"];
-export default function Inventory({ state, commit, notify, sales = false, storageMode = "local" }) {
+export default function Inventory({ state, commit, notify, sales = false, storageMode = "local", onRecoverSales }) {
   const [search, setSearch] = useState(""),
     [selected, setSelected] = useState(null),
     [revenue, setRevenue] = useState(""),
     [expenses, setExpenses] = useState("0"),
     [method, setMethod] = useState("Наличные"),
+    [soldOn, setSoldOn] = useState(saleToday()),
     [editing, setEditing] = useState(null);
   const run = async (fn) => {
     try {
@@ -34,6 +37,8 @@ export default function Inventory({ state, commit, notify, sales = false, storag
     "date",
     "note",
   ];
+  if (sales) return <Sales state={state} commit={commit} notify={notify} onRecoverSales={onRecoverSales} />;
+  const recovered = new Set(getSalesHistory(state).sales.filter((row) => !row.returned).map((row) => String(row.itemId)));
   return (
     <section className="panel">
       <div className="sectionhead">
@@ -85,6 +90,7 @@ export default function Inventory({ state, commit, notify, sales = false, storag
                 : "Нет данных"}
             </p>
             <p>{x.status}</p>
+            {!x.sale && recovered.has(String(x.id)) && <p className="warning">Подтверждённая продажа найдена в журнале. Она сохранена в разделе «Продажи»; повторную сделку создавать не нужно.</p>}
             {x.sale ? (
               <p>
                 Фактическая выручка: {money(x.sale.revenue)} · Расходы:{" "}
@@ -101,7 +107,7 @@ export default function Inventory({ state, commit, notify, sales = false, storag
             ) : null}
           </div>
           <div className="actions wrap">
-            {!x.sale && x.status !== "Продан" && (
+            {!x.sale && x.status !== "Продан" && !recovered.has(String(x.id)) && (
               <>
                 <Select
                   label="Статус"
@@ -134,6 +140,7 @@ export default function Inventory({ state, commit, notify, sales = false, storag
                     setSelected(x.id);
                     setRevenue("");
                     setExpenses("0");
+                    setSoldOn(saleToday());
                   }}
                 >
                   Зарегистрировать продажу
@@ -191,7 +198,7 @@ export default function Inventory({ state, commit, notify, sales = false, storag
               onSubmit={(e) => {
                 e.preventDefault();
                 run(async () => {
-                  await commit((s) => recordSale(s, x.id, revenue, expenses, method));
+                  await commit((s) => recordSale(s, x.id, revenue, expenses, method, soldOn));
                   setSelected(null);
                   notify("Продажа зарегистрирована");
                 });
@@ -199,6 +206,7 @@ export default function Inventory({ state, commit, notify, sales = false, storag
             >
               <h3>Подтверждение продажи</h3>
               <div className="formgrid">
+                <Field label="Фактическая дата продажи" value={soldOn} type="date" max={saleToday()} onChange={setSoldOn} required />
                 <Field
                   label="Фактическая выручка, ₸"
                   value={revenue}

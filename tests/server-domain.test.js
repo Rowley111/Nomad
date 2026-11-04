@@ -5,6 +5,7 @@ import { emptyState, purchase, recordSale, returnSale } from "../src/domain/stor
 import { initialInput } from "../src/domain/catalog.js";
 import { evaluate } from "../src/domain/valuation.js";
 import { addRepairLoss, voidRepairLoss } from "../src/domain/repairs.js";
+import { addCashTransaction } from "../src/domain/cash.js";
 import { validateWorkspace, validateTransition, calculateWorkspace } from "../server/domain-validation.mjs";
 
 const now = "2026-11-04T10:00:00.000Z";
@@ -23,6 +24,7 @@ const snapshot = (state) => ({ ...evaluate(input, state.prices[0], state.policy,
 test("server uses exact shared A35 rules, including zero purchase", () => {
   const state = fixture();
   const result = calculateWorkspace(state, input, "owner-a35", now);
+  assert.equal(calculateWorkspace(state,input,undefined,now).base,89000);
   assert.equal(result.installment, 111250);
   assert.equal(result.expectedProfit, 39000);
   const bought = purchase(state, snapshot(state), 0);
@@ -74,15 +76,72 @@ test("saved assessments and purchase history remain immutable after price change
 test("sale and return keep actual amounts and an append-only journal", () => {
   const state = fixture();
   const bought = purchase(state, snapshot(state), 50000);
-  const sold = recordSale(bought, bought.inventory[0].id, 87000, 2000, "Наличные");
+  const sold = recordSale(bought, bought.inventory[0].id, 87000, 2000, "Наличные", now.slice(0,10));
   assert.equal(validateTransition(bought, sold, now).inventory[0].sale.revenue, 87000);
   const fake = structuredClone(sold);
   fake.inventory[0].sale.revenue = 90000;
   assert.throws(() => validateTransition(sold, fake, now), /возврата/);
-  const returned = returnSale(sold, sold.inventory[0].id, "Возврат клиенту");
+  const returned = returnSale(sold, sold.inventory[0].id, "Возврат клиенту", now.slice(0,10));
   assert.equal(validateTransition(sold, returned, now).inventory[0].sale, null);
   returned.events.shift();
   assert.throws(() => validateTransition(sold, returned, now), /Историю/);
+});
+test("server rejects sale events without one matching inventory transition", () => {
+  const state = fixture();
+  const bought = purchase(state, snapshot(state), 50000);
+  const sold = recordSale(bought, bought.inventory[0].id, 87000, 2000, "Наличные", now.slice(0,10));
+  const event = sold.events.at(-1);
+  for (const before of [state, bought, sold]) {
+    const forged = structuredClone(before);
+    forged.events.push({ ...event, id: "orphan-sale", itemId: "missing-item" });
+    assert.throws(() => validateTransition(before, forged, now), /Событие продажи/);
+  }
+  const eventOnly = structuredClone(bought);
+  eventOnly.events.push(structuredClone(event));
+  assert.throws(() => validateTransition(bought, eventOnly, now), /Событие продажи/);
+  const duplicate = structuredClone(sold);
+  duplicate.events.push({ ...event, id: "duplicate-sale" });
+  assert.throws(() => validateTransition(bought, duplicate, now), /Событие продажи/);
+  const replay = structuredClone(sold);
+  replay.events.push({ ...event, id: "replayed-sale" });
+  assert.throws(() => validateTransition(sold, replay, now), /Событие продажи/);
+  const mismatched = structuredClone(sold);
+  mismatched.events.at(-1).revenue++;
+  assert.throws(() => validateTransition(bought, mismatched, now), /Событие продажи/);
+});
+test("server rejects orphan, repeated or inflated returns while preserving valid return and resale", () => {
+  const state = fixture();
+  const bought = purchase(state, snapshot(state), 50000);
+  const sold = recordSale(bought, bought.inventory[0].id, 87000, 2000, "Наличные", now.slice(0,10));
+  const returned = returnSale(sold, sold.inventory[0].id, "Возврат клиенту", now.slice(0,10));
+  const event = returned.events.at(-1);
+  const orphan = structuredClone(bought);
+  orphan.events.push(structuredClone(event));
+  assert.throws(() => validateTransition(bought, orphan, now), /Событие возврата/);
+  const eventOnly = structuredClone(sold);
+  eventOnly.events.push(structuredClone(event));
+  assert.throws(() => validateTransition(sold, eventOnly, now), /Событие возврата/);
+  const duplicate = structuredClone(returned);
+  duplicate.events.push({ ...event, id: "duplicate-return" });
+  assert.throws(() => validateTransition(sold, duplicate, now), /Событие возврата/);
+  const inflated = structuredClone(returned);
+  inflated.events.at(-1).refund = 500000;
+  assert.throws(() => validateTransition(sold, inflated, now), /Событие возврата/);
+  const replay = structuredClone(returned);
+  replay.events.push({ ...event, id: "replayed-return" });
+  assert.throws(() => validateTransition(returned, replay, now), /Событие возврата/);
+  assert.equal(validateTransition(sold, returned, now).inventory[0].sale, null);
+  const resold = recordSale(returned, returned.inventory[0].id, 85000, 1000, "Карта", now.slice(0,10));
+  assert.equal(validateTransition(returned, resold, now).inventory[0].sale.revenue, 85000);
+});
+test("server rejects a cash transfer to an archived destination", () => {
+  const state = fixture();
+  const transfer = addCashTransaction(state, {kind:"transfer",accountId:"cash",toAccountId:"bank",amount:5000,happenedOn:now.slice(0,10),reason:"Перевод в банк"}, "transfer-test");
+  assert.equal(validateTransition(state,transfer,now).cashTransactions.length,1);
+  const before = structuredClone(state), forged = structuredClone(transfer);
+  before.cashAccounts.find((row)=>row.id==="bank").archived=true;
+  forged.cashAccounts.find((row)=>row.id==="bank").archived=true;
+  assert.throws(()=>validateTransition(before,forged,now),/Счёт назначения/);
 });
 test("losses can be added and voided but never rewritten or removed", () => {
   const state = fixture();
@@ -96,7 +155,7 @@ test("losses can be added and voided but never rewritten or removed", () => {
 });
 test("worker process validates serialized state and rejects invalid action", () => {
   const call = (request) => spawnSync(process.execPath, ["server/domain-worker.mjs"], {
-    input: JSON.stringify(request), encoding: "utf8" });
+    input: JSON.stringify(request), encoding: "utf8", maxBuffer: 6 * 1024 * 1024 });
   const state = fixture();
   state.events.push({ id: "bulk-legacy-note", note: "Астана · ремонт 📱".repeat(16000) });
   const valid = call({ action: "validate", state });

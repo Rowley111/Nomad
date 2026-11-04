@@ -8,12 +8,16 @@ import Settings from "./components/Settings.jsx";
 import GuideImport from "./components/GuideImport.jsx";
 import Repairs from "./components/Repairs.jsx";
 import RepairReport from "./components/RepairReport.jsx";
+import Cash from "./components/Cash.jsx";
+import Employees from "./components/Employees.jsx";
+import { ensureCashState } from "./domain/cash.js";
 import CloudAccess from "./components/CloudAccess.jsx";
 import CloudStorage from "./components/CloudStorage.jsx";
 import { API_URL } from "./domain/remote.js";
 import { ensureRepairState } from "./domain/repairs.js";
 import { readState, emptyState, KEY, analytics, validateState } from "./domain/storage.js";
 import { money } from "./domain/valuation.js";
+import { mirrorSalesJournal } from "./domain/recovery.js";
 import { Download } from "./components/Fields.jsx";
 import {
   captureSetupRequest,
@@ -39,7 +43,8 @@ function Workspace({ remote, cloudInitial, onExit }) {
   );
   const [initial] = useState(() => {
     try {
-      return { state: cloud ? ensureRepairState(validateState(cloudInitial.state ?? emptyState())) : readState(localStorage) };
+      const value = cloud ? ensureRepairState(validateState(cloudInitial.state ?? emptyState())) : readState(localStorage);
+      return {state:value, storageWarning:cloud?"":mirrorSalesJournal(localStorage,value)};
     } catch (e) {
       return { error: e.message };
     }
@@ -49,6 +54,7 @@ function Workspace({ remote, cloudInitial, onExit }) {
     [message, setMessage] = useState(""),
     [analyticsView, setAnalyticsView] = useState("repairs");
   const [priceModel, setPriceModel] = useState("");
+  const [storageWarning,setStorageWarning]=useState(initial.storageWarning??"");
   const current = useRef(state);
   function applyRemote(result) {
     const next = ensureRepairState(validateState(result.state));
@@ -70,7 +76,8 @@ function Workspace({ remote, cloudInitial, onExit }) {
     if (cloud && (remoteChanged || remote.pending))
       throw new Error(remoteChanged ? "База изменена другим сотрудником. Загрузите новую версию перед сохранением." : "Сначала повторите незавершённое сохранение");
     const previous = current.current;
-    const next = ensureRepairState(validateState(fn(previous)));
+    const validated = ensureRepairState(validateState(fn(previous)));
+    const next = !cloud || previous.cashSchemaVersion ? ensureCashState(validated) : validated;
     if (cloud) {
       busyRef.current = true; setSaving(true);
       try { applyRemote(await remote.write(next)); }
@@ -83,6 +90,7 @@ function Workspace({ remote, cloudInitial, onExit }) {
       throw new Error("Данные изменены в другой вкладке. Перезагрузите страницу перед сохранением.");
     localStorage.setItem(KEY + "-before-write", JSON.stringify(previous));
     localStorage.setItem(KEY, JSON.stringify(next));
+    setStorageWarning(mirrorSalesJournal(localStorage,next));
     current.current = next;
     setState(next);
   }
@@ -220,12 +228,15 @@ function Workspace({ remote, cloudInitial, onExit }) {
     ["stock", "Склад"],
     ["sales", "Продажи"],
     ["repairs", "Ремонты"],
+    ["cash", "Касса и банк"],
+    ["employees", "Сотрудники"],
     ["analytics", "Аналитика"],
     ["settings", "Настройки"],
   ].filter(([key]) => admin || !["prices", "settings"].includes(key));
-  const props = { state, commit, notify: setMessage, storageMode: cloud ? "cloud" : "local",
+  const props = { state, commit, notify: setMessage, adminEdit:admin, storageMode: cloud ? "cloud" : "local",
     onEditPrice: admin ? (model) => { setPriceModel(model); setTab("prices"); } : undefined,
-    onManageCatalog: admin ? () => setTab("settings") : undefined };
+    onManageCatalog: admin ? () => setTab("settings") : undefined,
+    onRecoverSales: !cloud ? () => setTab("settings") : undefined };
   return (
     <div className="app">
       <aside>
@@ -300,6 +311,7 @@ function Workspace({ remote, cloudInitial, onExit }) {
           finally { busyRef.current = false; setSaving(false); }
         }}>Повторить сохранение</button></div>}
         {saving && <p role="status">Сохраняю в общую базу…</p>}
+        {storageWarning&&<div className="notice" role="alert">{storageWarning}</div>}
         <fieldset key={viewEpoch} className="workspace-controls" disabled={saving || uncertain || remoteChanged} onChangeCapture={() => { if (cloud) dirtyRef.current = true; }}>
         {tab === "valuator" && (
           <>
@@ -312,6 +324,8 @@ function Workspace({ remote, cloudInitial, onExit }) {
         {tab === "sales" && <Inventory {...props} sales />}
         {tab === "settings" && admin && <><Settings {...props} />{cloud && <CloudStorage {...props} remote={remote} onImport={importRemote} />}</>}
         {tab === "repairs" && <Repairs {...props} />}
+        {tab === "cash" && <Cash {...props} />}
+        {tab === "employees" && <Employees {...props} />}
         {tab === "analytics" && (
           <>
             <div className="actions wrap repair-tabs">

@@ -31,6 +31,7 @@ test("прайс → оценка → подтверждённая закупк�
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
+  await page.getByLabel("Поиск модели", { exact: true }).fill("Samsung Galaxy A35 5G");
   await expect(
     page.getByText("89 000 ₸", { exact: true }).first(),
   ).toBeVisible();
@@ -95,10 +96,13 @@ test("прайс → оценка → подтверждённая закупк�
     ),
   ).toBe(true);
 });
-test("чистая установка без выдуманной цены, прайс сохраняется один раз", async ({
+test("чистая установка с пустым выбором, собственный прайс сохраняется один раз", async ({
   page,
 }) => {
   await page.goto("/");
+  await expect(page.getByLabel("Поиск модели", { exact: true })).toHaveValue("");
+  await expect(page.getByText("Выберите устройство из подсказок — справа появится расчёт.")).toBeVisible();
+  await page.getByLabel("Поиск модели", { exact: true }).fill("BlackBerry Bold 9900");
   await expect(
     page.getByText(/Нет данных для этой конфигурации/),
   ).toBeVisible();
@@ -114,13 +118,14 @@ test("чистая установка без выдуманной цены, пр
     .getByRole("button", { name: "Сохранить прайс", exact: true })
     .click();
   await page.getByRole("button", { name: "Оценщик", exact: true }).click();
+  await page.getByLabel("Поиск модели", { exact: true }).fill("Samsung Galaxy A35 5G");
   await expect(page.getByText("111 250 ₸", { exact: true })).toBeVisible();
   await page.getByLabel("Поиск модели").fill("iPhone 11");
   await expect(page.getByLabel("Конфигурация (физическая память)")).toHaveValue(
     "64|",
   );
   await expect(
-    page.getByText(/Нет данных для этой конфигурации/),
+    page.getByText("Черновой ориентир из Excel — рынок не проверен"),
   ).toBeVisible();
   expect(
     await page.evaluate(
