@@ -1,29 +1,38 @@
 import React, { useState } from "react";
 import { Field, Select, conditions, checks, simOptions } from "./Fields.jsx";
-import { initialInput, changeModel } from "../domain/catalog.js";
+import { initialInput, changeModel, deviceProfile } from "../domain/catalog.js";
 import { evaluate, money, configKey } from "../domain/valuation.js";
 import { purchase, uid } from "../domain/storage.js";
-export default function Valuator({ state, commit, notify, storageMode = "local" }) {
+export default function Valuator({ state, commit, notify, storageMode = "local", onManageCatalog, onEditPrice }) {
   const [input, setInput] = useState(initialInput),
     [priceId, setPriceId] = useState(""),
     [buy, setBuy] = useState(""),
     [reason, setReason] = useState(""),
     [confirm, setConfirm] = useState(false),
-    [purchaseToken, setPurchaseToken] = useState("");
+    [purchaseToken, setPurchaseToken] = useState(""),
+    [brand, setBrand] = useState(""), [kind, setKind] = useState("");
   const update = (k, v) => {
     setInput((x) => ({ ...x, [k]: v }));
     setConfirm(false);
   };
   const model = state.catalog.find((m) => m.name === input.model);
   const configs = model?.configs ?? [];
+  const profile = deviceProfile(model ?? input.model);
+  const suggestions = state.catalog.filter((row) => (!brand || row.brand === brand) && (!kind || (row.deviceType ?? "phone") === kind));
+  const chooseFilter = (nextBrand, nextKind) => {
+    setBrand(nextBrand); setKind(nextKind);
+    const first = state.catalog.find((row) => (!nextBrand || row.brand === nextBrand) && (!nextKind || (row.deviceType ?? "phone") === nextKind));
+    setInput(changeModel(input, first?.name ?? "", state.catalog)); setPriceId(""); setConfirm(false);
+  };
   const prices = state.prices.filter((p) => configKey(p) === configKey(input));
   const price =
     prices.find((p) => p.id === priceId) ??
+    prices.find((p) => p.source === "owner-buy") ??
     prices.find((p) => p.source !== "owner-guide") ??
     prices[0];
   let result, error;
   try {
-    result = evaluate(input, price, state.policy);
+    result = evaluate(input, price, state.policy, undefined, model);
   } catch (e) {
     error = e.message;
   }
@@ -42,7 +51,10 @@ export default function Valuator({ state, commit, notify, storageMode = "local" 
         <p className="muted">
           Астана · Ваш справочник скупки · {storageMode === "cloud" ? "Общая база" : "Локальный режим"}
         </p>
+        <p className="muted">В каталоге {state.catalog.length} моделей, включая {state.catalog.filter((row) => row.deviceType === "tablet").length} планшетов. Цены — из вашего прайса.</p>
         <div className="formgrid">
+          <Select label="Устройства в подсказках" value={kind} onChange={(v) => chooseFilter(brand, v)} options={[["", "Все устройства"], ["phone", "Смартфоны"], ["tablet", "Планшеты"]]} />
+          <Select label="Бренды в подсказках" value={brand} onChange={(v) => chooseFilter(v, kind)} options={[["", "Все бренды"], ...[...new Set(state.catalog.map((row) => row.brand))].sort((a, b) => a.localeCompare(b, "ru"))]} />
           <label className="field wide">
             Поиск модели
             <input
@@ -55,7 +67,7 @@ export default function Valuator({ state, commit, notify, storageMode = "local" 
               }}
             />
             <datalist id="models">
-              {state.catalog.map((m) => (
+              {suggestions.map((m) => (
                 <option key={m.name} value={m.name} />
               ))}
             </datalist>
@@ -85,7 +97,7 @@ export default function Valuator({ state, commit, notify, storageMode = "local" 
             label="SIM (проверить вручную)"
             value={input.sim}
             onChange={(v) => update("sim", v)}
-            options={simOptions}
+            options={simOptions.filter(([key]) => profile.simModes.includes(key))}
           />
           <Select
             label="Экран"
@@ -253,6 +265,10 @@ export default function Valuator({ state, commit, notify, storageMode = "local" 
               разделе «Прайс и источники».
             </p>
             <p>{model?.source}</p>
+            <div className="actions wrap">
+              {onManageCatalog && <button onClick={onManageCatalog}>{model ? "Указать конфигурацию в конструкторе" : "Добавить свою модель"}</button>}
+              {onEditPrice && configs.length > 0 && <button onClick={() => onEditPrice(input.model)}>Задать свои цены</button>}
+            </div>
           </>
         ) : (
           <>
@@ -263,7 +279,7 @@ export default function Valuator({ state, commit, notify, storageMode = "local" 
                 onChange={setPriceId}
                 options={prices.map((x) => [
                   x.id,
-                  `${x.source === "owner-guide" ? "Справочник скупки" : "Ручная витрина"} · ${x.base.screen}/${x.base.body}, коробка ${x.base.box == null ? "не указана" : x.base.box ? "есть" : "нет"}, АКБ ${x.base.battery ?? "неизвестно"}`,
+                  `${x.source === "owner-guide" ? "Справочник скупки" : x.source === "owner-buy" ? "Мои цены скупки" : "Ручная витрина"} · ${x.base.screen}/${x.base.body}, коробка ${x.base.box == null ? "не указана" : x.base.box ? "есть" : "нет"}, АКБ ${x.base.battery ?? "неизвестно"}`,
                 ])}
               />
             )}
@@ -293,14 +309,15 @@ export default function Valuator({ state, commit, notify, storageMode = "local" 
                   {money(result.preliminaryMax)}
                 </strong>
                 <p>
-                  Скупка файла: {money(result.basisBuyMin)} –{" "}
+                  {price.source === "owner-buy" ? "Скупка владельца" : "Скупка файла"}: {money(result.basisBuyMin)} –{" "}
                   {money(result.basisBuyMax)}.<br />
-                  Снижение владельца: {money(result.reduction)}
+                  {price.source === "owner-guide" ? <>Снижение владельца: {money(result.reduction)}</> : "Ориентир введён владельцем"}
                   {result.adjustments.length
                     ? ". Дополнительно учтены отличия состояния"
                     : ""}
                   .
                 </p>
+                {price.source === "owner-buy" && <p>Средний ориентир скупки по вашему диапазону: <b>{money((result.preliminaryMin + result.preliminaryMax) / 2)}</b>. Средний ориентир продажи: <b>{money((result.sale + result.saleMax) / 2)}</b>. Это середина сохранённого диапазона.</p>}
                 <p className="source-note">
                   До проверки устройства. Это справочный диапазон, не безопасный
                   максимум закупа.
@@ -375,13 +392,13 @@ export default function Valuator({ state, commit, notify, storageMode = "local" 
                     {money(result.quick)} – {money(result.quickMax)}. В расчёте
                     максимума используется нижняя цена быстрой продажи.
                   </p>
-                  <p>
+                  {price.source === "owner-guide" ? <p>
                     Снижение {money(result.reduction)} применяется один раз к
                     скупке файла, а не к витрине. Предварительная скупка =
                     скупка файла − снижение + отличия состояния − прямые
                     расходы/ремонт по сценарию. Рекомендуемая скупка после
                     диагностики не превышает безопасный максимум.
-                  </p>
+                  </p> : <p>Мои цены скупки не уменьшаются на снижение для импортированного документа. Быстрая продажа рассчитывается по текущей политике магазина; отличия состояния и расходы учитываются отдельно.</p>}
                 </>
               )}
               <p>

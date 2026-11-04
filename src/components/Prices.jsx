@@ -8,6 +8,8 @@ import {
 } from "../domain/imports.js";
 import { money } from "../domain/valuation.js";
 import GuideImport from "./GuideImport.jsx";
+import QuickPrice from "./QuickPrice.jsx";
+import { deviceProfile } from "../domain/catalog.js";
 const blank = {
   model: "Samsung Galaxy A35 5G",
   storage: 128,
@@ -33,12 +35,12 @@ const blank = {
   quickMax: "",
   sourceName: "Ручной справочник владельца",
 };
-export default function Prices({ state, commit, notify, storageMode = "local" }) {
+export default function Prices({ state, commit, notify, storageMode = "local", initialModel }) {
   const [form, setForm] = useState(blank),
     [search, setSearch] = useState(""),
     [text, setText] = useState(""),
     [format, setFormat] = useState("json"),
-    [preview, setPreview] = useState(null);
+    [preview, setPreview] = useState(null), [quickRow, setQuickRow] = useState(null);
   const set = (k, v) => setForm((x) => ({ ...x, [k]: v }));
   const model = state.catalog.find((x) => x.name === form.model);
   async function save(e) {
@@ -53,6 +55,7 @@ export default function Prices({ state, commit, notify, storageMode = "local" })
   }
   return (
     <>
+      <QuickPrice state={state} commit={commit} notify={notify} initialModel={initialModel} initialPrice={quickRow} />
       <GuideImport state={state} commit={commit} notify={notify} storageMode={storageMode} />
       <div className="columns">
         <section className="panel">
@@ -112,7 +115,7 @@ export default function Prices({ state, commit, notify, storageMode = "local" })
                     model: v,
                     storage: c?.storage ?? "",
                     ram: c?.ram ?? null,
-                    sim: v === "iPhone Air" ? "esim" : "physical",
+                    sim: deviceProfile(state.catalog.find((row) => row.name === v) ?? v).simModes[0],
                   }));
                 }}
               />
@@ -140,7 +143,7 @@ export default function Prices({ state, commit, notify, storageMode = "local" })
                 label="SIM"
                 value={form.sim}
                 onChange={(v) => set("sim", v)}
-                options={simOptions}
+                options={simOptions.filter(([key]) => deviceProfile(model ?? form.model).simModes.includes(key))}
               />
               <Field
                 label="Цена витрины, ₸"
@@ -243,6 +246,7 @@ export default function Prices({ state, commit, notify, storageMode = "local" })
                   · {x.checkedAt} · {x.author}
                 </p>
                 <p>{x.note}</p>
+                {x.source === "owner-buy" && <p>Мой прайс скупки: {money(x.buyMin)} – {money(x.buyMax)}. Продажа: {money(x.saleMin)} – {money(x.saleMax)}. Источник — владелец.</p>}
                 {x.source === "owner-guide" && (
                   <p>
                     Скупка файла: {money(x.buyMin)} – {money(x.buyMax)} ·{" "}
@@ -252,14 +256,17 @@ export default function Prices({ state, commit, notify, storageMode = "local" })
                   </p>
                 )}
                 <button
-                  onClick={() =>
+                  onClick={() => {
+                    if (x.source === "owner-buy") {
+                      setQuickRow(structuredClone(x)); document.querySelector(".quick-price")?.scrollIntoView({ behavior: "smooth" }); return;
+                    }
                     setForm({
                       ...x,
                       base: undefined,
                       ...x.base,
                       battery: x.base.battery ?? "",
-                    })
-                  }
+                    });
+                  }}
                 >
                   Изменить
                 </button>

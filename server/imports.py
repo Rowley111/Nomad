@@ -43,7 +43,7 @@ def _price_identity(row: dict) -> str:
         row.get("channel"), base.get("screen"), base.get("body"),
         base.get("box"), base.get("battery")
         if base.get("battery") is not None else "unknown",
-        "owner-guide" if row.get("source") == "owner-guide" else "",
+        row.get("source") if row.get("source") in ("owner-guide", "owner-buy") else "",
     ])
 
 

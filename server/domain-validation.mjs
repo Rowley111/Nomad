@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import { ensureRepairState } from "../src/domain/repairs.js";
 import { validateState } from "../src/domain/storage.js";
 import { evaluate, amount } from "../src/domain/valuation.js";
+import { validateCatalog } from "../src/domain/catalog-management.js";
 
 function safeJSON(value) {
   if (value && typeof value === "object") {
@@ -68,7 +69,7 @@ function verifySnapshot(snapshot, previous, now) {
   const price = previous.prices.find((row) => row.id === snapshot.price?.id);
   if (!price || !isDeepStrictEqual(price, snapshot.price))
     throw new Error("Прайс изменился. Пересчитайте оценку");
-  const result = evaluate(snapshot.input, price, previous.policy, snapshot.at);
+  const result = evaluate(snapshot.input, price, previous.policy, snapshot.at, previous.catalog.find((row) => row.name === snapshot.input.model));
   for (const [key, expected] of Object.entries(result)) {
     if (!isDeepStrictEqual(snapshot[key], expected))
       throw new Error("Серверный расчёт не совпал с оценкой: " + key);
@@ -79,6 +80,7 @@ function verifySnapshot(snapshot, previous, now) {
 export function validateTransition(previousValue, value, now = new Date().toISOString()) {
   const previous = validateWorkspace(previousValue);
   const state = validateWorkspace(value);
+  if (!isDeepStrictEqual(previous.catalog, state.catalog)) validateCatalog(state.catalog, previous.prices);
   for (const key of ["events", "priceHistory", "repairEvents", "assessments"])
     appendOnly(previous, state, key);
   preserveExpenseRows(previous.repairLosses ?? [], state.repairLosses ?? [], "убытки");
@@ -146,5 +148,5 @@ export function validateTransition(previousValue, value, now = new Date().toISOS
 
 export function calculateWorkspace(stateValue, input, priceId, now) {
   const state = validateWorkspace(stateValue);
-  return evaluate(input, state.prices.find((row) => row.id === priceId), state.policy, now);
+  return evaluate(input, state.prices.find((row) => row.id === priceId), state.policy, now, state.catalog.find((row) => row.name === input.model));
 }

@@ -6,6 +6,7 @@ import {
 import { amount } from "./valuation.js";
 import { catalogDefaults } from "./catalog.js";
 import { policyDefaults } from "./valuation.js";
+import { CATALOG_REVISION, upgradeCatalog, validateCatalog } from "./catalog-management.js";
 export const KEY = "nomad-workspace-v2";
 export const LEGACY = "nomad-inventory-v1";
 export const uid = () => globalThis.crypto.randomUUID();
@@ -14,6 +15,7 @@ export function emptyState() {
     ...repairDefaults(),
     schemaVersion: 2,
     mode: "local",
+    catalogRevision: CATALOG_REVISION,
     inventory: [],
     prices: [],
     priceHistory: [],
@@ -52,9 +54,11 @@ export function readState(storage) {
   const raw = storage.getItem(KEY);
   if (raw !== null) {
     const previous = validateState(JSON.parse(raw));
-    const upgraded = ensureRepairState(previous);
+    const repaired = ensureRepairState(previous);
+    const upgraded = upgradeCatalog(repaired);
     if (upgraded !== previous) {
-      storage.setItem(KEY + "-before-repairs-v1", raw);
+      if (repaired !== previous) storage.setItem(KEY + "-before-repairs-v1", raw);
+      if (upgraded !== repaired) storage.setItem(KEY + "-before-catalog-v1", raw);
       storage.setItem(KEY, JSON.stringify(upgraded));
     }
     return upgraded;
@@ -69,6 +73,8 @@ export function readState(storage) {
 export function validateState(s) {
   if (s?.schemaVersion !== 2 || s.mode !== "local")
     throw new Error("Неподдерживаемая схема");
+  if (s.catalogRevision !== undefined && (!Number.isSafeInteger(s.catalogRevision) || s.catalogRevision < 0))
+    throw new Error("Некорректная версия каталога");
   for (const k of [
     "inventory",
     "prices",
@@ -106,6 +112,7 @@ export function validateState(s) {
     throw new Error("Неполная политика");
   Object.values(s.policy).forEach((v) => amount(v));
   const names = new Set();
+  validateCatalog(s.catalog);
   for (const model of s.catalog) {
     if (
       !model ||
@@ -134,13 +141,13 @@ export function validateState(s) {
       !["ideal", "good", "worn"].includes(price.base.screen) ||
       !["ideal", "good", "worn"].includes(price.base.body) ||
       (typeof price.base.box !== "boolean" &&
-        !(price.source === "owner-guide" && price.base.box == null))
+        !(["owner-guide", "owner-buy"].includes(price.source) && price.base.box == null))
     )
       throw new Error("Некорректная запись прайса");
     priceIds.add(price.id);
     amount(price.price);
     amount(price.storage);
-    if (price.source === "owner-guide") {
+    if (["owner-guide", "owner-buy"].includes(price.source)) {
       for (const key of [
         "buyMin",
         "buyMax",

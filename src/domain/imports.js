@@ -48,13 +48,18 @@ export function validatePrice(row, catalog) {
     x.channel !== "store-cash"
   )
     throw new Error("Поддерживается Астана / KZT / store-cash");
-  const guide = x.source === "owner-guide";
+  const guide = ["owner-guide", "owner-buy"].includes(x.source);
   if (x.source !== "owner" && !guide)
     throw new Error(
-      "Поддерживаются прайс владельца (owner) и справочник (owner-guide)",
+      "Поддерживаются прайс владельца (owner/owner-buy) и справочник (owner-guide)",
     );
-  if (!["physical", "esim", "other"].includes(x.sim))
+  if (!["physical", "esim", "other", "wifi"].includes(x.sim))
     throw new Error("Некорректный вариант SIM");
+  const device = catalog.find((m) => m.name === x.model);
+  if ((device?.connectivity === "wifi") !== (x.sim === "wifi"))
+    throw new Error("Для планшета Wi-Fi выберите вариант без SIM; для сотового устройства нужен вариант SIM");
+  if ((device?.simModes ?? (x.model === "iPhone Air" ? ["esim"] : null)) && !(device.simModes ?? ["esim"]).includes(x.sim))
+    throw new Error("SIM не соответствует подтверждённой модификации устройства");
   if (!x.author?.trim() || !x.note?.trim())
     throw new Error("Нужны автор и пояснение");
   if (

@@ -1,3 +1,6 @@
+import { samsungGoogleCatalog } from "../data/catalogs/samsung-google.js";
+import { xiaomiBbkCatalog } from "../data/catalogs/xiaomi-bbk.js";
+import { otherTabletCatalog } from "../data/catalogs/other-tablets.js";
 const appleSource = "https://support.apple.com/en-gb/108044";
 const apple = [
   ["11", [64, 128, 256]],
@@ -92,8 +95,20 @@ export const initialInput = {
   scenario: "asis",
   note: "",
 };
+export function deviceProfile(model, catalog = catalogDefaults) {
+  const record = typeof model === "string" ? catalog.find((row) => row.name === model) : model;
+  const name = typeof model === "string" ? model : model?.name ?? "";
+  const wifi = record?.connectivity === "wifi";
+  return {
+    deviceType: record?.deviceType ?? "phone",
+    connectivity: record?.connectivity ?? "phone",
+    faceid: record?.biometric === "faceid" || (record?.biometric == null && name.startsWith("iPhone") && !name.includes("SE")),
+    simModes: wifi ? ["wifi"] : record?.simModes ?? (name === "iPhone Air" ? ["esim"] : ["physical", "esim", "other"]),
+  };
+}
 export function changeModel(input, model, catalog) {
   const config = catalog.find((x) => x.name === model)?.configs[0];
+  const profile = deviceProfile(model, catalog);
   return {
     ...input,
     model,
@@ -104,17 +119,18 @@ export function changeModel(input, model, catalog) {
     locks: "unknown",
     defects: [],
     repair: 0,
+    expenses: 0,
     ask: "",
     note: "",
     storage: config?.storage ?? "",
     ram: config?.ram ?? null,
-    sim: model === "iPhone Air" ? "esim" : "physical",
+    sim: profile.simModes[0],
     checks: {
       sensor: "unknown",
       cameras: "unknown",
       network: "unknown",
       charging: "unknown",
-      ...(model.startsWith("iPhone") ? { faceid: "unknown" } : {}),
+      ...(profile.faceid ? { faceid: "unknown" } : {}),
     },
   };
 }
@@ -243,3 +259,26 @@ export function catalogForGuide(existing) {
 }
 const extended = catalogForGuide(catalogDefaults);
 catalogDefaults.splice(0, catalogDefaults.length, ...extended);
+
+// Device references contain no prices. Missing configurations stay unavailable
+// until a staff member confirms the exact physical memory on the device.
+const byName = new Map(catalogDefaults.map((row) => [row.name.toLocaleLowerCase("ru-RU"), row]));
+for (const addition of [...samsungGoogleCatalog, ...xiaomiBbkCatalog, ...otherTabletCatalog]) {
+  const key = addition.name.toLocaleLowerCase("ru-RU");
+  const previous = byName.get(key);
+  if (!previous) {
+    const row = structuredClone(addition); catalogDefaults.push(row); byName.set(key, row);
+  } else {
+    for (const config of addition.configs)
+      if (!previous.configs.some((x) => x.storage === config.storage && x.ram === config.ram))
+        previous.configs.push({ ...config });
+    for (const field of ["deviceType", "connectivity", "biometric", "simModes"])
+      if (previous[field] === undefined && addition[field] !== undefined)
+        previous[field] = structuredClone(addition[field]);
+  }
+}
+for (const model of catalogDefaults) {
+  model.deviceType ??= "phone";
+  model.connectivity ??= "phone";
+  model.biometric ??= model.name.startsWith("iPhone") ? "faceid" : "unknown";
+}

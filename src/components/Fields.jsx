@@ -48,6 +48,7 @@ export const simOptions = [
   ["physical", "Физическая SIM"],
   ["esim", "Только eSIM"],
   ["other", "Другой подтверждённый вариант"],
+  ["wifi", "Без SIM · Wi-Fi"],
 ];
 export function Download({ name, data, type = "application/json", children }) {
   return (

@@ -98,7 +98,7 @@ class CommitImport(Input):
 def staff_permissions(previous, state):
     if previous is None:
         raise HTTPException(403, "Общую базу сначала заполняет администратор")
-    for key in ("catalog", "policy", "prices", "priceHistory", "setupImports"):
+    for key in ("catalog", "catalogRevision", "policy", "prices", "priceHistory", "setupImports"):
         if previous.get(key) != state.get(key):
             raise HTTPException(403, "Изменять прайс, каталог и политику может только администратор")
     for key in ("events", "repairEvents", "assessments"):
