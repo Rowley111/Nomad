@@ -1,4 +1,5 @@
-export const VERSION = "1.1.0";
+import { deviceProfile } from "./catalog.js";
+export const VERSION = "1.2.0";
 export const policyDefaults = {
   bargain: 0,
   quick: 5,
@@ -36,7 +37,7 @@ export function priceKey(x) {
     x.base.body,
     x.base.box,
     x.base.battery ?? "unknown",
-    ...(x.source === "owner-guide" ? ["owner-guide"] : []),
+    ...(["owner-guide", "owner-buy"].includes(x.source) ? [x.source] : []),
   ].join("|");
 }
 export function evaluate(
@@ -44,7 +45,11 @@ export function evaluate(
   price,
   policy = policyDefaults,
   now = new Date().toISOString(),
+  model,
 ) {
+  const profile = deviceProfile(model ?? input.model);
+  if (!profile.simModes.includes(input.sim ?? "physical"))
+    throw new Error("Выбранный вариант SIM не соответствует устройству");
   const p = { ...policyDefaults, ...policy };
   Object.entries(p).forEach(([k, v]) => amount(v, k));
   if (p.bargain > 100 || p.quick > 100 || p.bankFee > 100)
@@ -71,7 +76,7 @@ export function evaluate(
     "cameras",
     "network",
     "charging",
-    ...(input.model.startsWith("iPhone") ? ["faceid"] : []),
+    ...(profile.faceid ? ["faceid"] : []),
   ];
   if (requiredChecks.some((k) => input.checks?.[k] !== "ok"))
     restrictions.push("Функции устройства требуют диагностики");
@@ -91,7 +96,7 @@ export function evaluate(
       status: "no-data",
     };
   const base = amount(price.price, "Цена прайса");
-  const guide = price.source === "owner-guide";
+  const guide = ["owner-guide", "owner-buy"].includes(price.source);
   const age = (Date.parse(now) - Date.parse(price.checkedAt)) / 86400000;
   if (!Number.isFinite(age) || age < -1)
     throw new Error("Некорректная дата прайса");
@@ -131,13 +136,14 @@ export function evaluate(
   const sale = guide
     ? Math.max(0, amount(price.saleMin) + totalAdjustment)
     : Math.round(showcase * (1 - p.bargain / 100));
-  const quick = guide
+  const ownBuy = price.source === "owner-buy";
+  const quick = ownBuy ? Math.floor(sale * (1 - p.quick / 100)) : guide
     ? Math.max(0, amount(price.quickMin) + totalAdjustment)
     : Math.round(sale * (1 - p.quick / 100));
   const costs = expenses + (input.scenario === "repair" ? repair : 0);
   const ceiling = Math.floor(quick - costs - p.risk - p.minProfit);
   const manual = restrictions.length > 0;
-  const reduction = guide ? guideReduction(input.model, p) : 0;
+  const reduction = price.source === "owner-guide" ? guideReduction(input.model, p) : 0;
   const preliminaryMin = guide
     ? Math.max(0, amount(price.buyMin) - reduction + totalAdjustment - costs)
     : null;
@@ -193,13 +199,13 @@ export function evaluate(
     basisBuyMin: guide ? price.buyMin : null,
     basisBuyMax: guide ? price.buyMax : null,
     saleMax: guide ? Math.max(0, price.saleMax + totalAdjustment) : sale,
-    quickMax: guide ? Math.max(0, price.quickMax + totalAdjustment) : quick,
+    quickMax: ownBuy ? Math.floor(Math.max(0, price.saleMax + totalAdjustment) * (1 - p.quick / 100)) : guide ? Math.max(0, price.quickMax + totalAdjustment) : quick,
     installment: Math.round(showcase * (1 + p.markup / 100)),
     expectedProfit: buy == null ? null : sale - buy - costs,
     installmentBankCost: Math.round(
       (showcase * (1 + p.markup / 100) * p.bankFee) / 100,
     ),
-    quality: guide
+    quality: price.source === "owner-buy" ? "Скупочный прайс владельца; не рыночная статистика" : guide
       ? "Справочный прайс из переписки; не свежий рынок, часть цен расчётная"
       : "Ручной ориентир владельца; не рыночная статистика",
     pawn: null,

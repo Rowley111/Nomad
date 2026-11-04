@@ -14,6 +14,7 @@ COPY server/requirements.txt server/requirements.txt
 RUN pip install --no-cache-dir -r server/requirements.txt
 COPY package.json package.json
 COPY src/domain/ src/domain/
+COPY src/data/ src/data/
 COPY server/ server/
 
 USER node

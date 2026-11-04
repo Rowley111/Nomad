@@ -1,4 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import CatalogManager from "./CatalogManager.jsx";
+import { validateCatalog } from "../domain/catalog-management.js";
 import { Field, Download } from "./Fields.jsx";
 import { previewBackup } from "../domain/imports.js";
 import { amount, guidePolicyDefaults } from "../domain/valuation.js";
@@ -18,14 +20,39 @@ const labels = {
   box: "Коробка, ₸",
   battery: "АКБ ниже 80%, ₸",
 };
-export default function Settings({ state, commit, notify, storageMode = "local" }) {
+export default function Settings({ state, commit, notify, storageMode = "local", onEditPrice }) {
+  const restoreRef = useRef(null);
+  function insertBackupText(text, element) {
+    const next = element.value.slice(0, element.selectionStart) + text + element.value.slice(element.selectionEnd);
+    setRestoreText(next); setBackup(null);
+  }
   const [policy, setPolicy] = useState({
       ...guidePolicyDefaults,
       ...state.policy,
     }),
     [catalog, setCatalog] = useState(JSON.stringify(state.catalog, null, 2)),
+    [catalogBase, setCatalogBase] = useState(JSON.stringify(state.catalog, null, 2)),
     [backup, setBackup] = useState(null),
     [restoreText, setRestoreText] = useState("");
+  useEffect(() => {
+    const element = restoreRef.current;
+    if (!element) return;
+    // Native Chromium insertion of a large multiline JSON can block the UI.
+    // Apply the entire input as a value update instead of native text editing.
+    const largeInput = (event) => {
+      if (typeof event.data === "string" && event.data.length > 10000) {
+        event.preventDefault(); insertBackupText(event.data, element);
+      }
+    };
+    element.addEventListener("beforeinput", largeInput);
+    return () => element.removeEventListener("beforeinput", largeInput);
+  }, []);
+  useEffect(() => {
+    if (catalog === catalogBase) {
+      const value = JSON.stringify(state.catalog, null, 2);
+      setCatalog(value); setCatalogBase(value);
+    }
+  }, [state.catalog]);
   const run = async (fn) => {
     try {
       await fn();
@@ -70,8 +97,9 @@ export default function Settings({ state, commit, notify, storageMode = "local" 
           <button type="submit">Сохранить политику</button>
         </form>
       </section>
-      <section className="panel">
-        <h2>Каталог моделей и конфигураций</h2>
+      <CatalogManager state={state} commit={commit} notify={notify} onEditPrice={onEditPrice} />
+      <details className="panel catalog-advanced">
+        <summary>Расширенный редактор каталога (JSON)</summary>
         <p>
           Администратор может редактировать справочник без изменения кода.
           Конфигурации Android без подтверждения оставлены пустыми: проверьте
@@ -87,7 +115,10 @@ export default function Settings({ state, commit, notify, storageMode = "local" 
         <button
           onClick={() =>
             run(async () => {
+              if (catalogBase !== JSON.stringify(state.catalog, null, 2))
+                throw new Error("Каталог уже изменён. Загрузите текущий каталог перед сохранением JSON.");
               const data = JSON.parse(catalog);
+              validateCatalog(data, state.prices);
               if (!Array.isArray(data) || !data.length)
                 throw new Error("Нужен непустой массив моделей");
               const names = new Set();
@@ -130,13 +161,19 @@ export default function Settings({ state, commit, notify, storageMode = "local" 
                   );
               }
               await commit((s) => ({ ...s, catalog: data }));
+              setCatalogBase(JSON.stringify(data, null, 2));
               notify("Каталог сохранён");
             })
           }
         >
           Сохранить каталог
         </button>
-      </section>
+        <button onClick={() => {
+          if (catalog !== catalogBase && !window.confirm("Заменить несохранённый JSON текущим каталогом?")) return;
+          const value = JSON.stringify(state.catalog, null, 2);
+          setCatalog(value); setCatalogBase(value);
+        }}>Загрузить текущий каталог</button>
+      </details>
       <section className="panel">
         <h2>Полная резервная копия</h2>
         <p>
@@ -171,6 +208,16 @@ export default function Settings({ state, commit, notify, storageMode = "local" 
         />
         <textarea
           aria-label="JSON резервной копии"
+          ref={restoreRef}
+          className="codeeditor backup-json"
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          wrap="off"
+          onPaste={(event) => {
+            const text = event.clipboardData.getData("text");
+            if (text.length > 10000) { event.preventDefault(); insertBackupText(text, event.currentTarget); }
+          }}
           value={restoreText}
           onChange={(e) => {
             setRestoreText(e.target.value);
@@ -222,6 +269,7 @@ export default function Settings({ state, commit, notify, storageMode = "local" 
                 run(async () => {
                   await commit(() => backup);
                   setBackup(null);
+                  setRestoreText("");
                   notify("Копия восстановлена");
                 })
               }

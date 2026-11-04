@@ -48,6 +48,7 @@ function Workspace({ remote, cloudInitial, onExit }) {
     [tab, setTab] = useState("valuator"),
     [message, setMessage] = useState(""),
     [analyticsView, setAnalyticsView] = useState("repairs");
+  const [priceModel, setPriceModel] = useState("");
   const current = useRef(state);
   function applyRemote(result) {
     const next = ensureRepairState(validateState(result.state));
@@ -222,7 +223,9 @@ function Workspace({ remote, cloudInitial, onExit }) {
     ["analytics", "Аналитика"],
     ["settings", "Настройки"],
   ].filter(([key]) => admin || !["prices", "settings"].includes(key));
-  const props = { state, commit, notify: setMessage, storageMode: cloud ? "cloud" : "local" };
+  const props = { state, commit, notify: setMessage, storageMode: cloud ? "cloud" : "local",
+    onEditPrice: admin ? (model) => { setPriceModel(model); setTab("prices"); } : undefined,
+    onManageCatalog: admin ? () => setTab("settings") : undefined };
   return (
     <div className="app">
       <aside>
@@ -304,7 +307,7 @@ function Workspace({ remote, cloudInitial, onExit }) {
             <Valuator {...props} />
           </>
         )}
-        {tab === "prices" && <Prices {...props} />}
+        {tab === "prices" && <Prices {...props} initialModel={priceModel} />}
         {tab === "stock" && <Inventory {...props} />}
         {tab === "sales" && <Inventory {...props} sales />}
         {tab === "settings" && admin && <><Settings {...props} />{cloud && <CloudStorage {...props} remote={remote} onImport={importRemote} />}</>}
