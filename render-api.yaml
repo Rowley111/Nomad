@@ -1,0 +1,23 @@
+# Не применяется автоматически. См. docs/DATABASE_MIGRATION.md.
+# Перед ручным созданием укажите регион уже существующей PostgreSQL.
+# DATABASE_URL добавляется владельцем в Environment API, не в Static Site.
+services:
+  - type: web
+    name: nomad-mobile-api
+    runtime: docker
+    plan: free
+    # region: frankfurt # замените на фактический регион БД до применения
+    repo: https://github.com/Rowley111/Nomad
+    branch: main
+    autoDeployTrigger: off
+    dockerfilePath: server/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: FRONTEND_ORIGIN
+        value: https://nomad-a027.onrender.com
+# Не создаёт PostgreSQL и не меняет действующий Static Site.
+# Free не обещает круглосуточную доступность. Платный план выбирается отдельно.
+# preDeployCommand доступен на платном Web Service; здесь его намеренно нет.

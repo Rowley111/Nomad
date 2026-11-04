@@ -7,9 +7,10 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node --test tests/domain.test.js tests/repairs.test.js tests/repair-storage.test.js",
+    "test": "node --test tests/domain.test.js tests/repairs.test.js tests/repair-storage.test.js tests/remote.test.js tests/server-domain.test.js",
     "lint": "eslint .",
-    "test:ui": "playwright test"
+    "test:ui": "playwright test",
+    "test:server": "python -m pytest server/tests -q"
   },
   "dependencies": {
     "fflate": "^0.8.2",

@@ -20,6 +20,8 @@ const EVENT_TYPES = [
   "repair-expense-voided",
   "repair-type-saved",
   "repair-material-template-saved",
+  "repair-loss",
+  "repair-loss-voided",
 ];
 const uid = () => globalThis.crypto.randomUUID();
 const clone = (value) => structuredClone(value);
@@ -200,7 +202,11 @@ export function repairDefaults() {
 export function validateRepairState(state) {
   if (!isRecord(state)) throw new Error("Некорректное хранилище ремонта");
   const present = SCHEMA_KEYS.filter((key) => Object.hasOwn(state, key));
-  if (!present.length) return state;
+  if (!present.length) {
+    if (Object.hasOwn(state, "repairLosses"))
+      throw new Error("Убытки требуют полного раздела ремонтов");
+    return state;
+  }
   if (present.length !== SCHEMA_KEYS.length || state.repairSchemaVersion !== 1)
     throw new Error("Неполная или неподдерживаемая схема ремонта");
   const types = assertUnique(state.repairTypes, "виды ремонта");
@@ -223,6 +229,24 @@ export function validateRepairState(state) {
   const orders = assertUnique(state.repairOrders, "заказы ремонта");
   for (const order of state.repairOrders)
     validateOrder(order, types, materials);
+  if (Object.hasOwn(state, "repairLosses")) {
+    assertUnique(state.repairLosses, "убытки");
+    for (const loss of state.repairLosses) {
+      if (
+        typeof loss.amount !== "number" ||
+        !Number.isFinite(loss.amount) ||
+        loss.amount >= 0 ||
+        loss.amount !== round(loss.amount)
+      )
+        throw new Error("Убыток должен быть отрицательной конечной суммой");
+      text(loss.reason, "причина убытка");
+      date(loss.lostOn, "Дата убытка");
+      timestamp(loss.createdAt);
+      if (loss.orderId !== undefined && !orders.has(loss.orderId))
+        throw new Error("Убыток ссылается на неизвестный ремонт");
+      validateVoid(loss);
+    }
+  }
   assertUnique(state.repairEvents, "история ремонта");
   const operations = new Set();
   for (const event of state.repairEvents) {
@@ -538,6 +562,79 @@ export function voidRepairExpense(state, id, kind, lineId, reason) {
   );
 }
 
+function lossAmount(value) {
+  const normalized =
+    typeof value === "string" ? value.trim().replace(/^−/, "-") : value;
+  if (
+    !["number", "string"].includes(typeof normalized) ||
+    (typeof normalized === "string" && !/^-?\d+(?:\.\d+)?$/.test(normalized)) ||
+    !Number.isFinite(Number(normalized)) ||
+    Number(normalized) === 0
+  )
+    throw new Error("Укажите ненулевую сумму убытка, например -5000");
+  const amount = -money(Math.abs(Number(normalized)), "Убыток");
+  if (amount === 0) throw new Error("Убыток должен быть не меньше 0,01 ₸");
+  return amount;
+}
+
+export function addRepairLoss(state, input, operationId) {
+  const current = ensureRepairState(state);
+  const orderId =
+    input.orderId === "" || input.orderId == null ? undefined : input.orderId;
+  if (orderId !== undefined) findOrder(current, orderId);
+  if (operationSeen(current, operationId, "repair-loss", orderId))
+    return current;
+  const loss = {
+    id: uid(),
+    amount: lossAmount(input.amount),
+    lostOn: date(input.lostOn, "Дата убытка"),
+    reason: text(input.reason, "причина убытка"),
+    createdAt: new Date().toISOString(),
+    ...(orderId === undefined ? {} : { orderId }),
+  };
+  return appendEvent(
+    { ...current, repairLosses: [...(current.repairLosses ?? []), loss] },
+    "repair-loss",
+    null,
+    loss,
+    {
+      reason: loss.reason,
+      ...(orderId === undefined ? {} : { orderId }),
+      ...operationExtra(operationId),
+    },
+  );
+}
+
+export function voidRepairLoss(state, id, reason) {
+  const current = ensureRepairState(state);
+  const before = (current.repairLosses ?? []).find((loss) => loss.id === id);
+  if (!before) throw new Error("Убыток не найден");
+  if (before.voided) throw new Error("Убыток уже исправлен");
+  const why = text(reason, "причина исправления убытка");
+  const after = {
+    ...before,
+    voided: true,
+    voidReason: why,
+    voidedAt: new Date().toISOString(),
+  };
+  return appendEvent(
+    {
+      ...current,
+      repairLosses: current.repairLosses.map((loss) =>
+        loss.id === id ? after : loss,
+      ),
+    },
+    "repair-loss-voided",
+    before,
+    after,
+    {
+      reason: why,
+      lossId: id,
+      ...(before.orderId === undefined ? {} : { orderId: before.orderId }),
+    },
+  );
+}
+
 function saveTemplate(state, input, key, type) {
   const current = ensureRepairState(state);
   const before =
@@ -593,7 +690,7 @@ export function saveRepairMaterialTemplate(state, input) {
   );
 }
 
-export function repairOrderTotals(order) {
+export function repairOrderTotals(order, lossRows = []) {
   const sum = (rows, value) =>
     rows.reduce((total, line) => round(total + value(line)), 0);
   const grossReceived = sum(
@@ -613,7 +710,11 @@ export function repairOrderTotals(order) {
     order.costs.filter((line) => !line.voided),
     (line) => line.amount,
   );
-  const expenses = round(materials + costs);
+  const losses = sum(
+    lossRows.filter((loss) => !loss.voided && loss.orderId === order.id),
+    (loss) => -loss.amount,
+  );
+  const expenses = round(materials + costs + losses);
   const plannedRevenue = order.plannedRevenue;
   return {
     received,
@@ -621,6 +722,7 @@ export function repairOrderTotals(order) {
     refunded,
     materials,
     costs,
+    losses,
     expenses,
     profit: round(received - expenses),
     plannedRevenue,
@@ -676,6 +778,7 @@ function blankTotals() {
     refunded: 0,
     materials: 0,
     costs: 0,
+    losses: 0,
     expenses: 0,
     profit: 0,
   };
@@ -717,6 +820,16 @@ export function repairReport(
         amount: line.amount,
       });
   }
+  for (const loss of (current.repairLosses ?? []).filter(
+    (row) => !row.voided,
+  )) {
+    entries.push({
+      orderId: loss.orderId,
+      day: loss.lostOn,
+      field: "losses",
+      amount: -loss.amount,
+    });
+  }
   const selected = entries.filter((entry) => inPeriod(entry.day));
   const dates = [
     ...selected.map((entry) => entry.day),
@@ -748,9 +861,13 @@ export function repairReport(
   const finish = (item) => ({
     ...item,
     received: round(item.grossReceived - item.refunded),
-    expenses: round(item.materials + item.costs),
+    expenses: round(item.materials + item.costs + item.losses),
     profit: round(
-      item.grossReceived - item.refunded - item.materials - item.costs,
+      item.grossReceived -
+        item.refunded -
+        item.materials -
+        item.costs -
+        item.losses,
     ),
   });
   return {
@@ -768,7 +885,9 @@ export function repairReport(
     totalCompletedCount: current.repairOrders.filter(
       (order) => order.status === "issued",
     ).length,
-    transactionOrderCount: new Set(selected.map((entry) => entry.orderId)).size,
+    transactionOrderCount: new Set(
+      selected.map((entry) => entry.orderId).filter((id) => id !== undefined),
+    ).size,
     series: [...buckets.values()].map(finish),
   };
 }

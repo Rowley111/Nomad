@@ -16,6 +16,8 @@ import {
   saveRepairMaterialTemplate,
   repairOrderTotals,
   repairReport,
+  addRepairLoss,
+  voidRepairLoss,
 } from "../src/domain/repairs.js";
 
 const initial = () =>
@@ -174,6 +176,7 @@ test("repair: advances, partial payments, refund, expense and actual profit", ()
     refunded: 3000,
     materials: 9000,
     costs: 1500,
+    losses: 0,
     expenses: 10500,
     profit: 16500,
     plannedRevenue: 30000,
@@ -538,4 +541,235 @@ test("repair: order edits journal the quote and heading without rewriting cash o
   assert.equal(repairReport(s).received, 5000);
   assert.throws(() => updateRepair(s, idOf(s), { plannedRevenue: -1 }));
   validateRepairState(s);
+});
+
+test("loss: signed and unsigned inputs become one negative dated loss without changing old records", () => {
+  const old = initial();
+  const serialized = JSON.stringify(old);
+  for (const amount of [-5000, 5000, "-5000", "5000", "−5000"]) {
+    const s = addRepairLoss(
+      old,
+      { amount, lostOn: "2026-11-04", reason: "Повреждена запчасть" },
+      "loss-1",
+    );
+    assert.equal(s.repairLosses[0].amount, -5000);
+    assert.equal(s.repairEvents.at(-1).type, "repair-loss");
+    assert.equal(s.repairEvents.at(-1).before, null);
+    assert.equal(s.repairEvents.at(-1).after.reason, "Повреждена запчасть");
+    assert.equal(repairReport(s).losses, 5000);
+    assert.equal(repairReport(s).profit, -5000);
+    assert.equal(JSON.stringify(old), serialized);
+    assert.equal(validateRepairState(s), s);
+  }
+  assert.equal(Object.hasOwn(repairDefaults(), "repairLosses"), false);
+  assert.equal(ensureRepairState(old), old);
+});
+
+test("loss: invalid amounts/dates/reasons/orders rejected atomically; payment/cost rules stay nonnegative", () => {
+  const s = initial();
+  const before = JSON.stringify(s);
+  const valid = { amount: -5000, lostOn: "2026-11-04", reason: "Убыток" };
+  for (const amount of [
+    0,
+    -0,
+    "0",
+    NaN,
+    Infinity,
+    -Infinity,
+    "",
+    " ",
+    null,
+    true,
+    {},
+    "-NaN",
+    "-Infinity",
+    "1e3",
+    "-0.001",
+  ])
+    assert.throws(() => addRepairLoss(s, { ...valid, amount }));
+  for (const loss of [
+    { ...valid, lostOn: "2026-02-30" },
+    { ...valid, reason: " " },
+    { ...valid, orderId: "unknown" },
+  ])
+    assert.throws(() => addRepairLoss(s, loss));
+  assert.throws(() =>
+    addRepairCost(s, idOf(s), {
+      name: "Отрицательный расход",
+      amount: -5000,
+      spentOn: "2026-11-04",
+    }),
+  );
+  assert.throws(() => pay(s, -5000));
+  assert.equal(JSON.stringify(s), before);
+});
+
+test("loss: report counts standalone losses without orders, by actual month/week and inclusive dates", () => {
+  let s = addRepairLoss(
+    repairDefaults(),
+    { amount: -5000, lostOn: "2026-10-31", reason: "Потеря" },
+    "first-loss",
+  );
+  s = addRepairLoss(
+    s,
+    { amount: 2000, lostOn: "2026-11-02", reason: "Повреждение" },
+    "second-loss",
+  );
+  const all = repairReport(s, {
+    from: "2026-10-01",
+    to: "2026-11-30",
+    groupBy: "month",
+  });
+  assert.equal(all.losses, 7000);
+  assert.equal(all.expenses, 7000);
+  assert.equal(all.profit, -7000);
+  assert.equal(all.received, 0);
+  assert.equal(all.orderCount, 0);
+  assert.equal(all.transactionOrderCount, 0);
+  assert.deepEqual(
+    all.series.map((row) => row.losses),
+    [5000, 2000],
+  );
+  assert.deepEqual(
+    all.series.map((row) => row.profit),
+    [-5000, -2000],
+  );
+  const oneDay = repairReport(s, {
+    from: "2026-11-02",
+    to: "2026-11-02",
+    groupBy: "week",
+  });
+  assert.equal(oneDay.losses, 2000);
+  assert.equal(oneDay.series[0].from, "2026-11-02");
+  assert.equal(oneDay.series[0].profit, -2000);
+});
+
+test("loss: linked loss reduces order and period once, global loss only period; quote/balance unchanged", () => {
+  let s = pay(initial(), 18000, "2026-11-04");
+  s = addRepairMaterial(s, idOf(s), {
+    name: "Материал",
+    quantity: 2,
+    unit: "шт.",
+    unitCost: 3000,
+    spentOn: "2026-11-04",
+  });
+  s = addRepairCost(s, idOf(s), {
+    name: "Доставка",
+    amount: 1000,
+    spentOn: "2026-11-04",
+  });
+  assert.equal(repairReport(s).profit, 11000);
+  s = addRepairLoss(
+    s,
+    {
+      amount: -5000,
+      lostOn: "2026-11-04",
+      reason: "Повреждение детали",
+      orderId: idOf(s),
+    },
+    "linked-loss",
+  );
+  const linked = repairOrderTotals(s.repairOrders[0], s.repairLosses);
+  assert.equal(linked.losses, 5000);
+  assert.equal(linked.expenses, 12000);
+  assert.equal(linked.profit, 6000);
+  assert.equal(linked.received, 18000);
+  assert.equal(linked.balance, 12000);
+  assert.equal(repairReport(s).profit, 6000);
+  assert.equal(repairReport(s).losses, 5000);
+  s = addRepairLoss(
+    s,
+    { amount: -1000, lostOn: "2026-11-04", reason: "Общий убыток" },
+    "global-loss",
+  );
+  assert.equal(
+    repairOrderTotals(s.repairOrders[0], s.repairLosses).profit,
+    6000,
+  );
+  assert.equal(repairReport(s).profit, 5000);
+  assert.equal(repairReport(s).transactionOrderCount, 1);
+});
+
+test("loss: duplicate operation IDs cannot double loss or collide with another operation/order", () => {
+  let s = initial();
+  const loss = {
+    amount: -5000,
+    lostOn: "2026-11-04",
+    reason: "Ошибка",
+    orderId: idOf(s),
+  };
+  s = addRepairLoss(s, loss, "loss-op");
+  assert.equal(addRepairLoss(s, loss, "loss-op"), s);
+  assert.equal(s.repairLosses.length, 1);
+  assert.equal(repairReport(s).losses, 5000);
+  assert.throws(() =>
+    addRepairCost(
+      s,
+      idOf(s),
+      { name: "Доставка", amount: 5000, spentOn: "2026-11-04" },
+      "loss-op",
+    ),
+  );
+  assert.throws(() =>
+    addRepairLoss(s, { ...loss, orderId: undefined }, "loss-op"),
+  );
+});
+
+test("loss: correcting an entry keeps original amount/snapshots/reason and JSON remains valid", () => {
+  let s = addRepairLoss(
+    initial(),
+    { amount: -5000, lostOn: "2026-11-04", reason: "Ошибочно записали" },
+    "loss-op",
+  );
+  const loss = s.repairLosses[0],
+    before = JSON.stringify(s);
+  assert.throws(() => voidRepairLoss(s, loss.id, " "));
+  assert.equal(JSON.stringify(s), before);
+  s = voidRepairLoss(s, loss.id, "Убыток уже учтён в материалах");
+  assert.equal(s.repairLosses[0].amount, -5000);
+  assert.equal(s.repairLosses[0].voided, true);
+  assert.equal(s.repairEvents.at(-1).type, "repair-loss-voided");
+  assert.equal(s.repairEvents.at(-1).before.voided, undefined);
+  assert.equal(
+    s.repairEvents.at(-1).after.voidReason,
+    "Убыток уже учтён в материалах",
+  );
+  assert.equal(repairReport(s).losses, 0);
+  assert.equal(repairReport(s).profit, 0);
+  assert.throws(() => voidRepairLoss(s, loss.id, "Повтор"));
+  const restored = JSON.parse(JSON.stringify(s));
+  assert.deepEqual(validateRepairState(restored), s);
+  assert.deepEqual(repairReport(restored), repairReport(s));
+});
+
+test("loss: malformed optional loss data is rejected; existing schema without losses remains unchanged", () => {
+  const s = addRepairLoss(initial(), {
+    amount: -5000,
+    lostOn: "2026-11-04",
+    reason: "Потеря",
+  });
+  assert.throws(() => validateRepairState({ repairLosses: [] }));
+  assert.throws(() =>
+    validateRepairState({ ...repairDefaults(), repairLosses: {} }),
+  );
+  for (const corrupt of [
+    (x) => (x.repairLosses[0].amount = 5000),
+    (x) => (x.repairLosses[0].amount = 0),
+    (x) => (x.repairLosses[0].amount = NaN),
+    (x) => (x.repairLosses[0].amount = -0.001),
+    (x) => (x.repairLosses[0].lostOn = "2026-02-30"),
+    (x) => (x.repairLosses[0].reason = ""),
+    (x) => (x.repairLosses[0].orderId = "missing"),
+    (x) => x.repairLosses.push({ ...x.repairLosses[0] }),
+    (x) => {
+      x.repairLosses[0].voided = true;
+    },
+  ]) {
+    const copy = structuredClone(s);
+    corrupt(copy);
+    assert.throws(() => validateRepairState(copy));
+  }
+  const original = initial();
+  assert.equal(Object.hasOwn(original, "repairLosses"), false);
+  assert.equal(validateRepairState(original), original);
 });

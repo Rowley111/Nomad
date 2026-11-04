@@ -65,7 +65,7 @@ function RepairChart({ series }) {
         </span>
         <span>
           <i className="chart-expense" />
-          Материалы и расходы
+          Материалы, расходы и убытки
         </span>
         <span>
           <i className="chart-profit" />
@@ -210,6 +210,7 @@ export default function RepairReport({ state }) {
     "refunded",
     "materials",
     "costs",
+    "losses",
     "expenses",
     "profit",
   ];
@@ -283,6 +284,7 @@ export default function RepairReport({ state }) {
               ["Получено от клиентов (после возвратов)", report.received],
               ["Стоимость материалов", report.materials],
               ["Другие прямые расходы", report.costs],
+              ["Убытки", report.losses ? -report.losses : 0],
               ["Заработок после прямых расходов", report.profit],
               ["Возвращено клиентам", report.refunded],
             ].map(([label, value]) => (
@@ -294,6 +296,11 @@ export default function RepairReport({ state }) {
               </article>
             ))}
           </div>
+          {report.profit < 0 && (
+            <p className="warning loss-deficit">
+              В минусе: {money(Math.abs(report.profit))} за выбранный период.
+            </p>
+          )}
           <section className="panel">
             <div className="sectionhead">
               <div>
@@ -317,9 +324,9 @@ export default function RepairReport({ state }) {
             </div>
             <RepairChart series={report.series} />
             <p className="source-note">
-              Это поступления за вычетом прямых расходов, включая авансы. Налоги
-              и общие расходы магазина не учтены. Статус заказа не создаёт
-              оплату и не отменяет реальные расходы.
+              Это поступления за вычетом прямых расходов и убытков, включая
+              авансы. Налоги и общие расходы магазина не учтены. Статус заказа
+              не создаёт оплату и не отменяет реальные расходы.
             </p>
             <div className="repair-period-list">
               {report.series.map((row) => (
@@ -328,7 +335,8 @@ export default function RepairReport({ state }) {
                   <span>Получено: {money(row.received)}</span>
                   <span>
                     Материалы: {money(row.materials)} · Другие расходы:{" "}
-                    {money(row.costs)}
+                    {money(row.costs)} · Убытки:{" "}
+                    {money(row.losses ? -row.losses : 0)}
                   </span>
                   <strong className={row.profit < 0 ? "red" : "green"}>
                     Заработок: {money(row.profit)}

@@ -3,7 +3,7 @@ import { Field, Select, conditions, checks, simOptions } from "./Fields.jsx";
 import { initialInput, changeModel } from "../domain/catalog.js";
 import { evaluate, money, configKey } from "../domain/valuation.js";
 import { purchase, uid } from "../domain/storage.js";
-export default function Valuator({ state, commit, notify }) {
+export default function Valuator({ state, commit, notify, storageMode = "local" }) {
   const [input, setInput] = useState(initialInput),
     [priceId, setPriceId] = useState(""),
     [buy, setBuy] = useState(""),
@@ -27,9 +27,9 @@ export default function Valuator({ state, commit, notify }) {
   } catch (e) {
     error = e.message;
   }
-  const run = (fn) => {
+  const run = async (fn) => {
     try {
-      fn();
+      await fn();
     } catch (e) {
       notify(e.message);
     }
@@ -40,7 +40,7 @@ export default function Valuator({ state, commit, notify }) {
       <section className="panel">
         <h2>Устройство клиента</h2>
         <p className="muted">
-          Астана · Ваш справочник скупки · Локальный режим
+          Астана · Ваш справочник скупки · {storageMode === "cloud" ? "Общая база" : "Локальный режим"}
         </p>
         <div className="formgrid">
           <label className="field wide">
@@ -400,8 +400,8 @@ export default function Valuator({ state, commit, notify }) {
             <div className="actions wrap">
               <button
                 onClick={() =>
-                  run(() => {
-                    commit((s) => ({
+                  run(async () => {
+                    await commit((s) => ({
                       ...s,
                       assessments: [
                         ...s.assessments,
@@ -446,8 +446,8 @@ export default function Valuator({ state, commit, notify }) {
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  run(() => {
-                    commit((s) =>
+                  run(async () => {
+                    await commit((s) =>
                       purchase(s, { ...result, purchaseToken }, buy, reason),
                     );
                     setConfirm(false);

@@ -11,7 +11,7 @@ const today = () =>
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
-export default function GuideImport({ state, commit, notify }) {
+export default function GuideImport({ state, commit, notify, storageMode = "local" }) {
   const [preview, setPreview] = useState(null),
     [loading, setLoading] = useState(false),
     [date, setDate] = useState(today()),
@@ -29,7 +29,9 @@ export default function GuideImport({ state, commit, notify }) {
         <p>
           {count
             ? "Прайс уже сохранён. Выберите модель и память — оценка появится автоматически."
-            : "Загрузите DOCX один раз. Сайт сохранит цены в этом браузере и будет оценивать выбранный телефон автоматически."}{" "}
+            : storageMode === "cloud"
+              ? "Загрузите DOCX один раз. После подтверждения цены сохранятся в общей базе."
+              : "Загрузите DOCX один раз. Сайт сохранит цены в этом браузере и будет оценивать выбранный телефон автоматически."}{" "}
           iPhone: снижение {money(state.policy.guideIphoneDiscount ?? 30000)};
           Android: {money(state.policy.guideAndroidDiscount ?? 0)}. Изменить
           можно в настройках.
@@ -148,9 +150,9 @@ export default function GuideImport({ state, commit, notify }) {
               <button
                 className="primary"
                 disabled={!preview.valid.length}
-                onClick={() => {
+                onClick={async () => {
                   try {
-                    commit((s) =>
+                    await commit((s) =>
                       mergePrices(
                         { ...s, catalog: catalogForGuide(s.catalog) },
                         preview.valid,

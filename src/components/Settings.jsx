@@ -18,7 +18,7 @@ const labels = {
   box: "Коробка, ₸",
   battery: "АКБ ниже 80%, ₸",
 };
-export default function Settings({ state, commit, notify }) {
+export default function Settings({ state, commit, notify, storageMode = "local" }) {
   const [policy, setPolicy] = useState({
       ...guidePolicyDefaults,
       ...state.policy,
@@ -26,9 +26,9 @@ export default function Settings({ state, commit, notify }) {
     [catalog, setCatalog] = useState(JSON.stringify(state.catalog, null, 2)),
     [backup, setBackup] = useState(null),
     [restoreText, setRestoreText] = useState("");
-  const run = (fn) => {
+  const run = async (fn) => {
     try {
-      fn();
+      await fn();
     } catch (e) {
       notify(e.message);
     }
@@ -44,13 +44,13 @@ export default function Settings({ state, commit, notify }) {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            run(() => {
+            run(async () => {
               const p = Object.fromEntries(
                 Object.entries(policy).map(([k, v]) => [k, amount(v, k)]),
               );
               if (p.bargain > 100 || p.quick > 100 || p.bankFee > 100)
                 throw new Error("Проценты скидок и комиссии: 0–100");
-              commit((s) => ({ ...s, policy: p }));
+              await commit((s) => ({ ...s, policy: p }));
               notify("Политика сохранена");
             });
           }}
@@ -73,7 +73,7 @@ export default function Settings({ state, commit, notify }) {
       <section className="panel">
         <h2>Каталог моделей и конфигураций</h2>
         <p>
-          Локальный владелец может редактировать справочник без изменения кода.
+          Администратор может редактировать справочник без изменения кода.
           Конфигурации Android без подтверждения оставлены пустыми: проверьте
           маркировку и официальный источник, разделите 4G и 5G. ram — только
           физическая ОЗУ. Изменения не сохранены до нажатия кнопки.
@@ -86,7 +86,7 @@ export default function Settings({ state, commit, notify }) {
         />
         <button
           onClick={() =>
-            run(() => {
+            run(async () => {
               const data = JSON.parse(catalog);
               if (!Array.isArray(data) || !data.length)
                 throw new Error("Нужен непустой массив моделей");
@@ -129,7 +129,7 @@ export default function Settings({ state, commit, notify }) {
                     "Нельзя удалить конфигурацию, используемую прайсом",
                   );
               }
-              commit((s) => ({ ...s, catalog: data }));
+              await commit((s) => ({ ...s, catalog: data }));
               notify("Каталог сохранён");
             })
           }
@@ -140,9 +140,9 @@ export default function Settings({ state, commit, notify }) {
       <section className="panel">
         <h2>Полная резервная копия</h2>
         <p>
-          Хранение только в этом браузере. Для переноса с localhost или другого
-          устройства экспортируйте JSON и импортируйте его на нужном адресе.
-          Автоматической синхронизации нет.
+          {storageMode === "cloud"
+            ? "Рабочие данные сохраняются в общей базе. Полная копия JSON содержит текущую серверную версию. Перенос локальных данных находится в разделе общей базы ниже."
+            : "Хранение только в этом браузере. Для переноса с localhost или другого устройства экспортируйте JSON и импортируйте его на нужном адресе. Автоматической синхронизации нет."}
         </p>
         <Download
           name={
@@ -152,6 +152,7 @@ export default function Settings({ state, commit, notify }) {
         >
           Скачать полную копию JSON
         </Download>
+        {storageMode === "local" && <>
         <input
           type="file"
           aria-label="Файл резервной копии"
@@ -197,10 +198,11 @@ export default function Settings({ state, commit, notify }) {
                 (a, x) => a + x.materials.length,
                 0,
               )}
-              . Сейчас сохранено ремонтов: {state.repairOrders?.length ?? 0}.
-              Восстановление полностью заменит эти записи данными из копии,
-              включая ремонты. Текущая версия сохраняется в
-              nomad-workspace-v2-before-write. Старый ключ v1 не меняется.
+              . Сейчас сохранено ремонтов: {state.repairOrders?.length ?? 0},
+              убытков: {state.repairLosses?.length ?? 0}. Восстановление
+              полностью заменит эти записи данными из копии, включая ремонты.
+              Текущая версия сохраняется в nomad-workspace-v2-before-write.
+              Старый ключ v1 не меняется.
             </p>
             {!backup.repairSchemaVersion && !!state.repairOrders?.length && (
               <p className="warning">
@@ -209,10 +211,16 @@ export default function Settings({ state, commit, notify }) {
                 полную копию текущих данных.
               </p>
             )}
+            {!backup.repairLosses && !!state.repairLosses?.length && (
+              <p className="warning">
+                В этой копии нет учёта убытков. Подтверждение заменит текущие
+                записи убытков пустым списком. Сначала сохраните полную копию.
+              </p>
+            )}
             <button
               onClick={() =>
-                run(() => {
-                  commit(() => backup);
+                run(async () => {
+                  await commit(() => backup);
                   setBackup(null);
                   notify("Копия восстановлена");
                 })
@@ -222,6 +230,7 @@ export default function Settings({ state, commit, notify }) {
             </button>
           </>
         )}
+        </>}
       </section>
     </>
   );
