@@ -55,6 +55,17 @@ const newMaterial = () => ({
   unitCost: "",
   spentOn: businessToday(),
 });
+function ContactFields({ value, onChange, orders, employees = [], suffix = "", listId }) {
+  const archivedNames=new Set(employees.filter((row)=>row.archived).map((row)=>row.name));
+  const masters = [...new Set([...employees.filter((row)=>!row.archived).map((row)=>row.name),...orders.map((row) => row.masterName?.trim()).filter((name)=>name&&!archivedNames.has(name))])].sort((a, b) => a.localeCompare(b, "ru"));
+  return <>
+    <Field label={"Мастер" + suffix} value={value.masterName ?? ""} onChange={(v) => onChange("masterName", v)} list={listId} maxLength={120} autoComplete="off" />
+    <datalist id={listId}>{masters.map((name) => <option key={name} value={name} />)}</datalist>
+    <Field label={"Имя клиента" + suffix} value={value.clientName ?? ""} onChange={(v) => onChange("clientName", v)} maxLength={120} autoComplete="off" />
+    <Field label={"Телефон клиента" + suffix} value={value.clientPhone ?? ""} type="tel" onChange={(v) => onChange("clientPhone", v)} maxLength={64} autoComplete="off" placeholder="Необязательно" />
+    <label className="field">{"Примечание к клиенту" + suffix}<textarea aria-label={"Примечание к клиенту" + suffix} value={value.clientNote ?? ""} onChange={(e) => onChange("clientNote", e.target.value)} maxLength={2000} /></label>
+  </>;
+}
 function OrderDetail({ order, data, commit, notify }) {
   const [material, setMaterial] = useState(newMaterial),
     [cost, setCost] = useState({
@@ -111,6 +122,11 @@ function OrderDetail({ order, data, commit, notify }) {
         />
       </div>
       <p>{order.description || "Описание не указано"}</p>
+      <div aria-label="Мастер и клиент заказа">
+        <p>Мастер: <strong>{order.masterName || "Не назначен"}</strong></p>
+        <p>Клиент: {order.clientName || "Не указан"}{order.clientPhone && <> · {order.clientPhone}</>}</p>
+        {order.clientNote && <p style={{ whiteSpace: "pre-wrap" }}>{order.clientNote}</p>}
+      </div>
       <button
         onClick={() =>
           setEdit({ ...order, plannedRevenue: order.plannedRevenue ?? "" })
@@ -166,6 +182,7 @@ function OrderDetail({ order, data, commit, notify }) {
               value={edit.description}
               onChange={(v) => setEdit((x) => ({ ...x, description: v }))}
             />
+            <ContactFields value={edit} onChange={(key, value) => setEdit((x) => ({ ...x, [key]: value }))} orders={data.repairOrders} employees={data.employees} suffix=" в заказе" listId={"repair-master-edit-" + order.id} />
           </div>
           <button type="submit">Сохранить изменения заказа</button>
           <button type="button" onClick={() => setEdit(null)}>
@@ -521,6 +538,7 @@ function OrderDetail({ order, data, commit, notify }) {
                         Смета: {money(e.before.plannedRevenue)} →{" "}
                         {money(e.after.plannedRevenue)}
                       </p>
+                      {[['masterName','Мастер'],['clientName','Клиент'],['clientPhone','Телефон'],['clientNote','Примечание к клиенту']].filter(([key]) => e.before[key] !== e.after[key]).map(([key, title]) => <p key={key}>{title}: {e.before[key] || "Не указан"} → {e.after[key] || "Не указан"}</p>)}
                     </>
                   );
                 })()}
@@ -673,7 +691,7 @@ function RepairDictionaries({ data, commit, notify }) {
     </div>
   );
 }
-export default function Repairs({ state, commit, notify }) {
+export default function Repairs({ state, commit, notify, storageMode = "local" }) {
   const data = ensureRepairState(state);
   const [view, setView] = useState("orders"),
     [search, setSearch] = useState(""),
@@ -687,6 +705,7 @@ export default function Repairs({ state, commit, notify }) {
     description: "",
     receivedOn: businessToday(),
     plannedRevenue: "",
+    masterName: "", clientName: "", clientPhone: "", clientNote: "",
   });
   const activeTypeId =
     data.repairTypes.find((x) => x.id === form.repairTypeId && !x.archived)
@@ -697,9 +716,9 @@ export default function Repairs({ state, commit, notify }) {
     .filter(
       (x) =>
         (filter === "all" || x.status === filter) &&
-        `${x.device} ${x.repairTypeName} ${x.description} ${x.id}`
+        (`${x.device} ${x.repairTypeName} ${x.description} ${x.id} ${x.masterName ?? ""} ${x.clientName ?? ""} ${x.clientPhone ?? ""}`
           .toLowerCase()
-          .includes(search.toLowerCase()),
+          .includes(search.toLowerCase()) || (search.replace(/\D/g, "").length >= 3 && (x.clientPhone ?? "").replace(/\D/g, "").includes(search.replace(/\D/g, "")))),
     )
     .slice()
     .reverse();
@@ -711,6 +730,7 @@ export default function Repairs({ state, commit, notify }) {
     "receivedOn",
     "status",
     "plannedRevenue",
+    "masterName", "clientName", "clientPhone", "clientNote",
     "received",
     "materials",
     "costs",
@@ -755,7 +775,7 @@ export default function Repairs({ state, commit, notify }) {
           ))}
         </div>
         <span className="source-note">
-          В этом браузере · Полная копия в настройках
+          {storageMode === "cloud" ? "Общая база" : "В этом браузере"} · Полная копия в настройках
         </span>
       </div>
       {view === "report" ? (
@@ -805,6 +825,7 @@ export default function Repairs({ state, commit, notify }) {
                       device: "",
                       description: "",
                       plannedRevenue: "",
+                      clientName: "", clientPhone: "", clientNote: "",
                     }));
                     setOp(uid());
                     setShowNew(false);
@@ -861,6 +882,7 @@ export default function Repairs({ state, commit, notify }) {
                     value={form.description}
                     onChange={(v) => setForm((x) => ({ ...x, description: v }))}
                   />
+                  <ContactFields value={form} onChange={(key, value) => setForm((x) => ({ ...x, [key]: value }))} orders={data.repairOrders} employees={data.employees} listId="repair-master-create" />
                 </div>
                 <button
                   className="primary"
@@ -877,6 +899,7 @@ export default function Repairs({ state, commit, notify }) {
               <div className="formgrid">
                 <Field
                   label="Поиск ремонта"
+                  placeholder="Модель, мастер, клиент или телефон"
                   value={search}
                   onChange={setSearch}
                 />
@@ -918,6 +941,7 @@ export default function Repairs({ state, commit, notify }) {
                       <span>
                         {statuses.find(([key]) => key === order.status)?.[1]}
                       </span>
+                      {(order.masterName || order.clientName || order.clientPhone) && <span>{order.masterName ? `Мастер: ${order.masterName}` : "Мастер не назначен"}{order.clientName ? ` · Клиент: ${order.clientName}` : ""}{order.clientPhone ? ` · ${order.clientPhone}` : ""}</span>}
                       <span>
                         Получено: {money(t.received)} · Материалы:{" "}
                         {money(t.materials)}

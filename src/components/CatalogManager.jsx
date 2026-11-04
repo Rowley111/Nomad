@@ -85,7 +85,7 @@ export default function CatalogManager({ state, commit, notify, onEditPrice }) {
             {form.configs.map((row, index) => <div className="catalog-config" key={row.key}>
               <span className="catalog-config-number">{index + 1}</span>
               <Field label="Встроенная память, ГБ" value={row.storage} type="number" min="1" step="1" required onChange={(value) => updateConfig(row.key, "storage", value)} />
-              {!apple && <Field label="Физическая ОЗУ, ГБ" value={row.ram} type="number" min="1" step="1" required onChange={(value) => updateConfig(row.key, "ram", value)} />}
+              {!apple && <Field label="Физическая ОЗУ, ГБ" value={row.ram} type="number" min="0.001" step="any" required onChange={(value) => updateConfig(row.key, "ram", value)} />}
               <button type="button" className="danger" aria-label={`Убрать конфигурацию ${index + 1}`} onClick={() => { setForm((previous) => ({ ...previous, configs: previous.configs.filter((config) => config.key !== row.key) })); setDirty(true); }}>Убрать</button>
             </div>)}
           </div>
@@ -109,9 +109,9 @@ export default function CatalogManager({ state, commit, notify, onEditPrice }) {
           const prices = state.prices.filter((price) => price.model === model.name).length;
           return <article className="catalog-card" key={model.name}>
             <div><span className="catalog-kind">{model.brand} · {kindLabel(model)}{model.connectivity === "wifi" ? " · Wi-Fi" : model.connectivity === "cellular" ? " · Cellular" : ""}</span><h3>{model.name}</h3></div>
-            <p>{model.configs.length ? model.configs.map(configLabel).join("; ") : "Конфигурации требуется подтвердить"}</p>
+            <p>{model.configs.length ? model.configs.map((config)=>configLabel(config)+(config.referenceOnly?" (Excel: уточнить SKU)":"")).join("; ") : "Конфигурации требуется подтвердить"}</p>
             <p className="muted">{prices ? `Записей прайса: ${prices}` : "Прайс не задан"}</p>
-            <details><summary>Источник конфигураций</summary><p className="muted">{model.verified ? "Данные производителя" : "Конфигурация владельца или данные на уточнение"}: {model.source}</p></details>
+            <details><summary>Источник конфигураций</summary><p className="muted">{model.verified ? "Данные производителя" : "Конфигурация владельца или данные на уточнение"}: {model.source}</p>{model.configs.some((config)=>config.referenceOnly)&&<p>Варианты с пометкой Excel взяты из справочника владельца и требуют сверки на устройстве; ссылка производителя не подтверждает эти дополнительные SKU.</p>}</details>
             <div className="actions wrap"><button type="button" aria-label={`Редактировать модель ${model.name}`} onClick={() => selectModel(model)}>Редактировать</button>{onEditPrice && <button type="button" onClick={() => {
               if (dirty && !window.confirm("Открыть прайс? Несохранённые поля модели будут очищены.")) return;
               onEditPrice(model.name);

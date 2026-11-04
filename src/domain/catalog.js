@@ -1,6 +1,7 @@
 import { samsungGoogleCatalog } from "../data/catalogs/samsung-google.js";
 import { xiaomiBbkCatalog } from "../data/catalogs/xiaomi-bbk.js";
 import { otherTabletCatalog } from "../data/catalogs/other-tablets.js";
+import { workbookModels } from "./workbook.js";
 const appleSource = "https://support.apple.com/en-gb/108044";
 const apple = [
   ["11", [64, 128, 256]],
@@ -263,7 +264,7 @@ catalogDefaults.splice(0, catalogDefaults.length, ...extended);
 // Device references contain no prices. Missing configurations stay unavailable
 // until a staff member confirms the exact physical memory on the device.
 const byName = new Map(catalogDefaults.map((row) => [row.name.toLocaleLowerCase("ru-RU"), row]));
-for (const addition of [...samsungGoogleCatalog, ...xiaomiBbkCatalog, ...otherTabletCatalog]) {
+for (const addition of [...samsungGoogleCatalog, ...xiaomiBbkCatalog, ...otherTabletCatalog, ...workbookModels()]) {
   const key = addition.name.toLocaleLowerCase("ru-RU");
   const previous = byName.get(key);
   if (!previous) {
@@ -275,6 +276,10 @@ for (const addition of [...samsungGoogleCatalog, ...xiaomiBbkCatalog, ...otherTa
     for (const field of ["deviceType", "connectivity", "biometric", "simModes"])
       if (previous[field] === undefined && addition[field] !== undefined)
         previous[field] = structuredClone(addition[field]);
+    if (addition.hasWorkbookReference) {
+      previous.hasWorkbookReference = true;
+      previous.workbookModelId = addition.workbookModelId;
+    }
   }
 }
 for (const model of catalogDefaults) {

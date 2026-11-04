@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { catalogDefaults, changeModel, initialInput, deviceProfile } from "../src/domain/catalog.js";
-import { saveCatalogModel, upgradeCatalog, validateCatalog } from "../src/domain/catalog-management.js";
+import { saveCatalogModel, upgradeCatalog, validateCatalog, CATALOG_REVISION } from "../src/domain/catalog-management.js";
 import { emptyState, readState, KEY } from "../src/domain/storage.js";
 import { buildOwnerPrice } from "../src/domain/price-builder.js";
 import { mergePrices, validatePrice } from "../src/domain/imports.js";
@@ -27,7 +27,7 @@ test("local catalogue upgrade preserves custom records, stock and prices, backs 
   const next = readState(storage);
   assert.deepEqual(next.inventory, previous.inventory);
   assert.deepEqual(next.catalog[0], previous.catalog[0]);
-  assert.equal(map.get(KEY + "-before-catalog-v1"), raw);
+  assert.equal(map.get(KEY + "-before-catalog-v" + CATALOG_REVISION), raw);
   assert.ok(next.catalog.length > previous.catalog.length);
   const count = writes.length;
   readState(storage);

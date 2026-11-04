@@ -4,6 +4,7 @@ import { validateCatalog } from "../domain/catalog-management.js";
 import { Field, Download } from "./Fields.jsx";
 import { previewBackup } from "../domain/imports.js";
 import { amount, guidePolicyDefaults } from "../domain/valuation.js";
+import SalesRecovery from "./SalesRecovery.jsx";
 const labels = {
   guideIphoneDiscount: "Снижение скупки iPhone из справочника, ₸",
   guideAndroidDiscount: "Снижение скупки Android из справочника, ₸",
@@ -62,6 +63,7 @@ export default function Settings({ state, commit, notify, storageMode = "local",
   };
   return (
     <>
+      {storageMode==="local"&&<SalesRecovery state={state} commit={commit} notify={notify}/>}
       <section className="panel">
         <h2>Политика магазина</h2>
         <p>
@@ -251,6 +253,8 @@ export default function Settings({ state, commit, notify, storageMode = "local",
               Текущая версия сохраняется в nomad-workspace-v2-before-write.
               Старый ключ v1 не меняется.
             </p>
+            <p>Кассовых операций в копии: {backup.cashTransactions?.length ?? 0}; сотрудников: {backup.employees?.length ?? 0}. Полная копия включает сохранённые контакты клиентов и сотрудников.</p>
+            {!backup.cashSchemaVersion&&!!state.cashTransactions?.length&&<p className="warning">В этой копии нет кассы и банка. Подтверждение сбросит текущий кассовый журнал до нулевых начальных остатков. Сначала сохраните полную копию текущих данных.</p>}
             {!backup.repairSchemaVersion && !!state.repairOrders?.length && (
               <p className="warning">
                 В этой старой копии нет раздела ремонтов. При подтверждении

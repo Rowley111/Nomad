@@ -1,6 +1,6 @@
 import { catalogDefaults } from "./catalog.js";
 
-export const CATALOG_REVISION = 1;
+export const CATALOG_REVISION = 2;
 const clone = (x) => structuredClone(x);
 const normalize = (x) => String(x ?? "").trim().replace(/\s+/g, " ");
 const configKey = (x) => Number(x.storage) + "|" + (x.ram == null || x.ram === "" ? "" : Number(x.ram));
@@ -30,8 +30,9 @@ export function validateCatalog(catalog, prices = []) {
     for (const config of model.configs) {
       const positiveInteger = (value) => ["number", "string"].includes(typeof value) &&
         Number.isSafeInteger(Number(value)) && Number(value) > 0;
-      if (!positiveInteger(config.storage) || (config.ram != null && !positiveInteger(config.ram)))
-        throw new Error("Память — положительное целое число; виртуальная ОЗУ не учитывается");
+      const positiveRam = (value) => ["number", "string"].includes(typeof value) && Number.isFinite(Number(value)) && Number(value) > 0;
+      if (!positiveInteger(config.storage) || (config.ram != null && !positiveRam(config.ram)))
+        throw new Error("Накопитель — положительное целое число, физическая ОЗУ — положительное число без виртуального расширения");
       if (configs.has(configKey(config))) throw new Error("Повтор конфигурации памяти");
       configs.add(configKey(config));
     }
@@ -90,7 +91,7 @@ export function extendCatalog(existing, defaults = catalogDefaults) {
     }
     for (const config of addition.configs)
       if (!model.configs.some((row) => configKey(row) === configKey(config))) model.configs.push(clone(config));
-    for (const key of ["deviceType", "connectivity", "biometric", "simModes"])
+    for (const key of ["deviceType", "connectivity", "biometric", "simModes", "workbookModelId", "hasWorkbookReference", "configStatus"])
       if (model[key] === undefined && addition[key] !== undefined) model[key] = clone(addition[key]);
   }
   validateCatalog(catalog);

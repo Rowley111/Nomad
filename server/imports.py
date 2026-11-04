@@ -15,7 +15,8 @@ from typing import Any
 COLLECTIONS = (
     "inventory", "prices", "priceHistory", "assessments", "events", "catalog",
     "repairOrders", "repairTypes", "materialCatalog", "repairEvents",
-    "repairLosses", "setupImports",
+    "repairLosses", "setupImports", "cashAccounts", "cashCategories", "employees",
+    "cashTransactions", "cashEvents",
 )
 
 
@@ -71,6 +72,8 @@ def _merge_rows(collection: str, existing: list, incoming: list,
         if collection == "prices" else {}
     purchases = {row["purchaseToken"]: row for row in result
                  if row.get("purchaseToken")} if collection == "inventory" else {}
+    operations = {row["operationId"]: row for row in result
+                  if row.get("operationId")} if collection == "cashTransactions" else {}
     for row in incoming:
         identity = _identity(row)
         old = by_id.get(identity)
@@ -78,9 +81,11 @@ def _merge_rows(collection: str, existing: list, incoming: list,
             old = natural.get(_price_identity(row))
         if old is None and collection == "inventory" and row.get("purchaseToken"):
             old = purchases.get(row["purchaseToken"])
+        if old is None and collection == "cashTransactions" and row.get("operationId"):
+            old = operations.get(row["operationId"])
         if old is not None:
             left, right = old, row
-            if collection in ("prices", "inventory") and _identity(old) != identity:
+            if collection in ("prices", "inventory", "cashTransactions") and _identity(old) != identity:
                 left, right = _without_id(old), _without_id(row)
             if _canonical(left) == _canonical(right):
                 report["duplicates"][collection] += 1
@@ -94,6 +99,8 @@ def _merge_rows(collection: str, existing: list, incoming: list,
             natural[_price_identity(row)] = copied
         if collection == "inventory" and copied.get("purchaseToken"):
             purchases[copied["purchaseToken"]] = copied
+        if collection == "cashTransactions" and copied.get("operationId"):
+            operations[copied["operationId"]] = copied
         _add(report, collection)
     return result
 
@@ -167,7 +174,17 @@ def merge_local_state(current: dict | None, incoming: dict) -> tuple[dict, dict]
     if not isinstance(current, dict) or current.get("schemaVersion") != 2:
         raise ValueError("Неподдерживаемая серверная схема")
     result = deepcopy(current)
-    for key, value in incoming.items():
+    for key in sorted(incoming, key=lambda key: key == "cashEvents"):
+        value = incoming[key]
+        if key == "cashEvents":
+            transaction_ids = {row["id"] for row in result.get("cashTransactions", [])}
+            accepted = []
+            for row in value:
+                if row.get("transactionId") is not None and row["transactionId"] not in transaction_ids:
+                    _conflict(report, key, row.get("id"), "Событие относится к конфликтующей или дублирующей операции; сохранена серверная версия")
+                else:
+                    accepted.append(row)
+            value = accepted
         if key in COLLECTIONS:
             if key == "catalog":
                 result[key] = _merge_catalog(result.get(key, []), value, report)

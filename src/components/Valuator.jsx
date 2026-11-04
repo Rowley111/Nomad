@@ -3,8 +3,10 @@ import { Field, Select, conditions, checks, simOptions } from "./Fields.jsx";
 import { initialInput, changeModel, deviceProfile } from "../domain/catalog.js";
 import { evaluate, money, configKey } from "../domain/valuation.js";
 import { purchase, uid } from "../domain/storage.js";
+import { findWorkbookPrice } from "../domain/workbook.js";
+import WorkbookStatus from "./WorkbookStatus.jsx";
 export default function Valuator({ state, commit, notify, storageMode = "local", onManageCatalog, onEditPrice }) {
-  const [input, setInput] = useState(initialInput),
+  const [input, setInput] = useState(() => ({ ...structuredClone(initialInput), model: "", storage: "", ram: null })),
     [priceId, setPriceId] = useState(""),
     [buy, setBuy] = useState(""),
     [reason, setReason] = useState(""),
@@ -18,21 +20,28 @@ export default function Valuator({ state, commit, notify, storageMode = "local",
   const model = state.catalog.find((m) => m.name === input.model);
   const configs = model?.configs ?? [];
   const profile = deviceProfile(model ?? input.model);
-  const suggestions = state.catalog.filter((row) => (!brand || row.brand === brand) && (!kind || (row.deviceType ?? "phone") === kind));
+  const query = input.model.trim().toLocaleLowerCase("ru-RU");
+  const suggestions = state.catalog.filter((row) => (!brand || row.brand === brand) && (!kind || (row.deviceType ?? "phone") === kind) &&
+    (!query || `${row.brand} ${row.name}`.toLocaleLowerCase("ru-RU").includes(query))).slice(0, 80);
   const chooseFilter = (nextBrand, nextKind) => {
     setBrand(nextBrand); setKind(nextKind);
-    const first = state.catalog.find((row) => (!nextBrand || row.brand === nextBrand) && (!nextKind || (row.deviceType ?? "phone") === nextKind));
-    setInput(changeModel(input, first?.name ?? "", state.catalog)); setPriceId(""); setConfirm(false);
+    if (!model || (nextBrand && model.brand !== nextBrand) || (nextKind && (model.deviceType ?? "phone") !== nextKind))
+      setInput(changeModel(input, "", state.catalog));
+    setPriceId(""); setConfirm(false);
   };
-  const prices = state.prices.filter((p) => configKey(p) === configKey(input));
+  const savedPrices = state.prices.filter((p) => configKey(p) === configKey(input));
+  const workbookPrice = model ? findWorkbookPrice(input, model) : undefined;
+  const prices = workbookPrice ? [...savedPrices, workbookPrice] : savedPrices;
   const price =
     prices.find((p) => p.id === priceId) ??
     prices.find((p) => p.source === "owner-buy") ??
-    prices.find((p) => p.source !== "owner-guide") ??
-    prices[0];
+    prices.find((p) => p.source === "owner") ??
+    prices.find((p) => p.source === "owner-guide") ??
+    workbookPrice;
+  const workbook = price?.source === "workbook-reference";
   let result, error;
   try {
-    result = evaluate(input, price, state.policy, undefined, model);
+    if (model) result = evaluate(input, price, state.policy, undefined, model);
   } catch (e) {
     error = e.message;
   }
@@ -45,20 +54,25 @@ export default function Valuator({ state, commit, notify, storageMode = "local",
   };
   const applicable = Object.entries(input.checks);
   return (
+    <>
     <div className="columns">
       <section className="panel">
         <h2>Устройство клиента</h2>
         <p className="muted">
           Астана · Ваш справочник скупки · {storageMode === "cloud" ? "Общая база" : "Локальный режим"}
         </p>
-        <p className="muted">В каталоге {state.catalog.length} моделей, включая {state.catalog.filter((row) => row.deviceType === "tablet").length} планшетов. Цены — из вашего прайса.</p>
+        <p className="muted">В каталоге {state.catalog.length} моделей, включая {state.catalog.filter((row) => row.deviceType === "tablet").length} планшетов. Сохранённый прайс имеет приоритет перед черновыми ориентирами Excel.</p>
         <div className="formgrid">
           <Select label="Устройства в подсказках" value={kind} onChange={(v) => chooseFilter(brand, v)} options={[["", "Все устройства"], ["phone", "Смартфоны"], ["tablet", "Планшеты"]]} />
           <Select label="Бренды в подсказках" value={brand} onChange={(v) => chooseFilter(v, kind)} options={[["", "Все бренды"], ...[...new Set(state.catalog.map((row) => row.brand))].sort((a, b) => a.localeCompare(b, "ru"))]} />
           <label className="field wide">
             Поиск модели
             <input
+              aria-label="Поиск модели"
               list="models"
+              placeholder="Начните вводить модель"
+              autoComplete="off"
+              spellCheck={false}
               value={input.model}
               onChange={(e) => {
                 setInput(changeModel(input, e.target.value, state.catalog));
@@ -72,6 +86,7 @@ export default function Valuator({ state, commit, notify, storageMode = "local",
               ))}
             </datalist>
           </label>
+          {model && <>
           <Select
             label="Конфигурация (физическая память)"
             value={input.storage + "|" + (input.ram ?? "")}
@@ -252,11 +267,16 @@ export default function Valuator({ state, commit, notify, storageMode = "local",
               />
             </div>
           </details>
+          </>}
         </div>
       </section>
       <section className="panel result">
         <h2>Предложение Nomad Mobile</h2>
-        {error ? (
+        {!model ? (
+          <div className="empty"><p>Выберите устройство из подсказок — справа появится расчёт.</p>
+            {input.model.trim() && onManageCatalog && <button onClick={onManageCatalog}>Добавить свою модель</button>}
+          </div>
+        ) : error ? (
           <p role="alert">{error}</p>
         ) : result?.status === "no-data" ? (
           <>
@@ -276,16 +296,21 @@ export default function Valuator({ state, commit, notify, storageMode = "local",
               <Select
                 label="Базовое состояние прайса"
                 value={price.id}
-                onChange={setPriceId}
+                onChange={(value) => { setPriceId(value); setConfirm(false); }}
                 options={prices.map((x) => [
                   x.id,
-                  `${x.source === "owner-guide" ? "Справочник скупки" : x.source === "owner-buy" ? "Мои цены скупки" : "Ручная витрина"} · ${x.base.screen}/${x.base.body}, коробка ${x.base.box == null ? "не указана" : x.base.box ? "есть" : "нет"}, АКБ ${x.base.battery ?? "неизвестно"}`,
+                  `${x.source === "workbook-reference" ? "Excel · черновой ориентир" : x.source === "owner-guide" ? "Справочник скупки" : x.source === "owner-buy" ? "Мои цены скупки" : "Ручная витрина"} · ${x.base.screen}/${x.base.body}, коробка ${x.base.box == null ? "не указана" : x.base.box ? "есть" : "нет"}, АКБ ${x.base.battery ?? "неизвестно"}`,
                 ])}
               />
             )}
             <p>
-              База: {money(result.base)} · {price.author} · {price.checkedAt}
+              База: {money(result.base)} · {price.author} · {workbook ? `Дата расчёта таблицы: ${price.workbook.calculatedOn}` : price.checkedAt}
             </p>
+            {workbook && <div className="notice workbook-basis">
+              <strong>Черновой ориентир из Excel — рынок не проверен</strong>
+              <p>Диапазон б/у в таблице: {money(price.workbook.usedMin)} – {money(price.workbook.usedMax)}. Это расчётные значения, не диапазон полученных объявлений.</p>
+              <p>Проверка цены: {price.workbook.priceCheckedOn ?? "нет подтверждённой даты"}. Память: {price.workbook.memoryStatus}. Характеристики и SIM нужно проверить на устройстве.</p>
+            </div>}
             <p className="muted">
               {price.note}. {result.quality}
             </p>
@@ -301,7 +326,7 @@ export default function Valuator({ state, commit, notify, storageMode = "local",
                 ))}
               </details>
             )}
-            {result.guide && (
+            {result.guide && result.preliminaryMin != null && result.preliminaryMax != null && (
               <div className="offer-hero">
                 <span>Предварительная скупка по вашему прайсу</span>
                 <strong>
@@ -309,9 +334,9 @@ export default function Valuator({ state, commit, notify, storageMode = "local",
                   {money(result.preliminaryMax)}
                 </strong>
                 <p>
-                  {price.source === "owner-buy" ? "Скупка владельца" : "Скупка файла"}: {money(result.basisBuyMin)} –{" "}
+                  {workbook ? "Скупка таблицы" : price.source === "owner-buy" ? "Скупка владельца" : "Скупка файла"}: {money(result.basisBuyMin)} –{" "}
                   {money(result.basisBuyMax)}.<br />
-                  {price.source === "owner-guide" ? <>Снижение владельца: {money(result.reduction)}</> : "Ориентир введён владельцем"}
+                  {price.source === "owner-guide" ? <>Снижение владельца: {money(result.reduction)}</> : workbook ? "Черновой расчёт из Excel" : "Ориентир введён владельцем"}
                   {result.adjustments.length
                     ? ". Дополнительно учтены отличия состояния"
                     : ""}
@@ -330,11 +355,12 @@ export default function Valuator({ state, commit, notify, storageMode = "local",
                 )}
               </div>
             )}
-            <span>Рекомендованная витрина</span>
+            {workbook && !price.workbook.hasBuyRange && <p className="warning">В таблице нет диапазона скупки для этой конфигурации. Нужна ручная оценка после диагностики.</p>}
+            <span>{workbook ? "Витрина по таблице" : "Рекомендованная витрина"}</span>
             <strong>{money(result.showcase)}</strong>
             {[
-              ["Продажа с торгом (консервативно)", result.sale],
-              ["Быстрая продажа (консервативно)", result.quick],
+              [workbook ? "Ориентир продажи из таблицы" : "Продажа с торгом (консервативно)", result.sale],
+              [workbook ? "Быстрая продажа (расчёт Excel)" : "Быстрая продажа (консервативно)", result.quick],
               ["Рекомендуемая скупка", result.recommendedBuy],
               ["Максимальный закуп", result.maxBuy],
               ["Рассрочка +" + state.policy.markup + "%", result.installment],
@@ -398,7 +424,7 @@ export default function Valuator({ state, commit, notify, storageMode = "local",
                     скупка файла − снижение + отличия состояния − прямые
                     расходы/ремонт по сценарию. Рекомендуемая скупка после
                     диагностики не превышает безопасный максимум.
-                  </p> : <p>Мои цены скупки не уменьшаются на снижение для импортированного документа. Быстрая продажа рассчитывается по текущей политике магазина; отличия состояния и расходы учитываются отдельно.</p>}
+                  </p> : workbook ? <p>Взяты сохранённые результаты строки Excel. Поправки за память, возраст и ликвидность повторно не применяются. Дата расчёта не подтверждает свежесть рынка; безопасный максимум закупа по этой таблице не выдаётся.</p> : <p>Мои цены скупки не уменьшаются на снижение для импортированного документа. Быстрая продажа рассчитывается по текущей политике магазина; отличия состояния и расходы учитываются отдельно.</p>}
                 </>
               )}
               <p>
@@ -436,7 +462,7 @@ export default function Valuator({ state, commit, notify, storageMode = "local",
                 onClick={async () => {
                   try {
                     await navigator.clipboard.writeText(
-                      `Nomad Mobile, Астана: предварительное предложение ${money(result.customerOffer)} за ${input.model} ${input.storage} ГБ. Итоговая сумма после проверки устройства.`,
+                      `Nomad Mobile, Астана: ${workbook ? "по справочной таблице " : ""}предварительное предложение ${money(result.customerOffer)} за ${input.model} ${input.storage} ГБ. Итоговая сумма после проверки устройства.`,
                     );
                     notify("Предложение скопировано");
                   } catch {
@@ -497,5 +523,7 @@ export default function Valuator({ state, commit, notify, storageMode = "local",
         )}
       </section>
     </div>
+    <WorkbookStatus />
+    </>
   );
 }
