@@ -190,3 +190,36 @@ test("полная JSON-копия восстанавливает оплаты, 
   assert.deepEqual(storage.writes, []);
   assert.equal(storage.data.get(KEY + "-before-repairs-v1"), undefined);
 });
+
+test("убытки сохраняются в полной копии, отрицательная запись не меняет прежний склад", async () => {
+  const { addRepairLoss } = await import("../src/domain/repairs.js");
+  const before = ensureRepairState(legacyWorkspace());
+  const snapshot = JSON.stringify(before.inventory);
+  const state = addRepairLoss(
+    before,
+    { amount: "-5000", lostOn: "2026-10-16", reason: "Повреждение при работе" },
+    "loss-once",
+  );
+  const backup = previewBackup(JSON.stringify(state));
+  assert.deepEqual(backup, state);
+  assert.equal(backup.repairLosses[0].amount, -5000);
+  assert.equal(JSON.stringify(backup.inventory), snapshot);
+  assert.equal(
+    readState(memoryStorage(JSON.stringify(state))).repairLosses[0].amount,
+    -5000,
+  );
+  const broken = {
+    ...state,
+    repairLosses: [{ ...state.repairLosses[0], amount: 5000 }],
+  };
+  assert.throws(() => previewBackup(JSON.stringify(broken)));
+});
+test("старая версия раздела ремонтов без убытков загружается без переписывания данных", () => {
+  const state = ensureRepairState(legacyWorkspace());
+  delete state.repairLosses;
+  const raw = JSON.stringify(state);
+  const storage = memoryStorage(raw);
+  assert.deepEqual(readState(storage), state);
+  assert.deepEqual(storage.writes, []);
+  assert.equal(storage.data.get(KEY), raw);
+});

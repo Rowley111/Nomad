@@ -1,0 +1,15 @@
+.git
+node_modules
+dist
+.venv
+**/__pycache__
+**/.pytest_cache
+.env
+.env.*
+playwright-report
+test-results
+backups
+*.dump
+*.sqlite
+*.sqlite3
+*.db

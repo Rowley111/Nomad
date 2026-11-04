@@ -33,7 +33,7 @@ const blank = {
   quickMax: "",
   sourceName: "Ручной справочник владельца",
 };
-export default function Prices({ state, commit, notify }) {
+export default function Prices({ state, commit, notify, storageMode = "local" }) {
   const [form, setForm] = useState(blank),
     [search, setSearch] = useState(""),
     [text, setText] = useState(""),
@@ -41,11 +41,11 @@ export default function Prices({ state, commit, notify }) {
     [preview, setPreview] = useState(null);
   const set = (k, v) => setForm((x) => ({ ...x, [k]: v }));
   const model = state.catalog.find((x) => x.name === form.model);
-  function save(e) {
+  async function save(e) {
     e.preventDefault();
     try {
       const row = validatePrice(form, state.catalog);
-      commit((s) => mergePrices(s, [row]));
+      await commit((s) => mergePrices(s, [row]));
       notify("Прайс сохранён. Следующая оценка получит цену автоматически.");
     } catch (e) {
       notify(e.message);
@@ -53,7 +53,7 @@ export default function Prices({ state, commit, notify }) {
   }
   return (
     <>
-      <GuideImport state={state} commit={commit} notify={notify} />
+      <GuideImport state={state} commit={commit} notify={notify} storageMode={storageMode} />
       <div className="columns">
         <section className="panel">
           <h2>Сохранить ориентир владельца</h2>
@@ -375,9 +375,9 @@ export default function Prices({ state, commit, notify }) {
             <pre>{JSON.stringify(preview.valid.slice(0, 5), null, 2)}</pre>
             <button
               disabled={!preview.valid.length || !!preview.errors.length}
-              onClick={() => {
+              onClick={async () => {
                 try {
-                  commit((s) => mergePrices(s, preview.valid));
+                  await commit((s) => mergePrices(s, preview.valid));
                   setPreview(null);
                   notify("Импорт завершён без дублирования ключей");
                 } catch (e) {

@@ -4,16 +4,16 @@ import { recordSale, returnSale, uid } from "../domain/storage.js";
 import { amount, money, businessDate } from "../domain/valuation.js";
 import { safeCell } from "../domain/imports.js";
 const statuses = ["В наличии", "На диагностике/ремонте", "Резерв"];
-export default function Inventory({ state, commit, notify, sales = false }) {
+export default function Inventory({ state, commit, notify, sales = false, storageMode = "local" }) {
   const [search, setSearch] = useState(""),
     [selected, setSelected] = useState(null),
     [revenue, setRevenue] = useState(""),
     [expenses, setExpenses] = useState("0"),
     [method, setMethod] = useState("Наличные"),
     [editing, setEditing] = useState(null);
-  const run = (fn) => {
+  const run = async (fn) => {
     try {
-      fn();
+      await fn();
     } catch (e) {
       notify(e.message);
     }
@@ -108,8 +108,8 @@ export default function Inventory({ state, commit, notify, sales = false }) {
                   value={x.status}
                   options={statuses}
                   onChange={(v) =>
-                    run(() =>
-                      commit((s) => ({
+                    run(async () =>
+                      await commit((s) => ({
                         ...s,
                         inventory: s.inventory.map((i) =>
                           i.id === x.id ? { ...i, status: v } : i,
@@ -150,7 +150,7 @@ export default function Inventory({ state, commit, notify, sales = false }) {
                     "Причина возврата (будет сохранена в истории)",
                   );
                   if (reason)
-                    run(() => commit((s) => returnSale(s, x.id, reason)));
+                    run(async () => commit((s) => returnSale(s, x.id, reason)));
                 }}
               >
                 Оформить возврат
@@ -158,15 +158,16 @@ export default function Inventory({ state, commit, notify, sales = false }) {
             )}
             <button
               className="danger"
-              disabled={!!x.sale}
+              disabled={!!x.sale || storageMode === "cloud"}
+              title={storageMode === "cloud" ? "В общей базе удаление запрещено: история закупки сохраняется" : undefined}
               onClick={() => {
                 if (
                   window.confirm(
                     "Удалить карточку? Резервная копия текущего состояния будет сохранена.",
                   )
                 )
-                  run(() =>
-                    commit((s) => ({
+                  run(async () =>
+                    await commit((s) => ({
                       ...s,
                       inventory: s.inventory.filter((i) => i.id !== x.id),
                       events: [
@@ -189,8 +190,8 @@ export default function Inventory({ state, commit, notify, sales = false }) {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                run(() => {
-                  commit((s) => recordSale(s, x.id, revenue, expenses, method));
+                run(async () => {
+                  await commit((s) => recordSale(s, x.id, revenue, expenses, method));
                   setSelected(null);
                   notify("Продажа зарегистрирована");
                 });
@@ -233,9 +234,9 @@ export default function Inventory({ state, commit, notify, sales = false }) {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                run(() => {
+                run(async () => {
                   amount(editing.sell);
-                  commit((s) => ({
+                  await commit((s) => ({
                     ...s,
                     inventory: s.inventory.map((i) =>
                       i.id === x.id

@@ -17,6 +17,10 @@ import {
   repairOrderTotals,
 } from "../domain/repairs.js";
 import RepairReport from "./RepairReport.jsx";
+import RepairLosses, {
+  RepairLossForm,
+  RepairLossRows,
+} from "./RepairLosses.jsx";
 const statuses = [
   ["accepted", "Принят"],
   ["in_progress", "В работе"],
@@ -40,6 +44,8 @@ const eventNames = {
   "repair-payment": "Оплата получена",
   "repair-refund": "Возврат клиенту",
   "repair-expense-voided": "Ошибка расхода исправлена",
+  "repair-loss": "Убыток записан",
+  "repair-loss-voided": "Ошибка убытка исправлена",
 };
 const newMaterial = () => ({
   materialId: "",
@@ -66,11 +72,11 @@ function OrderDetail({ order, data, commit, notify }) {
   const [materialOp, setMaterialOp] = useState(uid),
     [costOp, setCostOp] = useState(uid),
     [paymentOp, setPaymentOp] = useState(uid);
-  const totals = repairOrderTotals(order);
+  const totals = repairOrderTotals(order, data.repairLosses ?? []);
   const [edit, setEdit] = useState(null);
-  const run = (fn, after) => {
+  const run = async (fn, after) => {
     try {
-      commit(fn);
+      await commit(fn);
       after?.();
     } catch (e) {
       notify(e.message);
@@ -185,6 +191,7 @@ function OrderDetail({ order, data, commit, notify }) {
           ["Получено от клиента", totals.received],
           ["Материалы", totals.materials],
           ["Другие расходы", totals.costs],
+          ["Убытки", totals.losses ? -totals.losses : 0],
           ["Заработок после прямых расходов", totals.profit],
           ["Осталось получить по смете", totals.balance],
         ].map(([label, value]) => (
@@ -458,6 +465,26 @@ function OrderDetail({ order, data, commit, notify }) {
         </form>
       </details>
       <details>
+        <summary>Убытки по этому заказу</summary>
+        <RepairLossForm
+          state={data}
+          commit={commit}
+          notify={notify}
+          orderId={order.id}
+        />
+        <RepairLossRows
+          state={data}
+          commit={commit}
+          notify={notify}
+          orderId={order.id}
+        />
+      </details>
+      {totals.profit < 0 && (
+        <p className="warning loss-deficit">
+          По этому заказу в минусе: {money(Math.abs(totals.profit))}
+        </p>
+      )}
+      <details>
         <summary>История заказа</summary>
         {data.repairEvents
           .filter((e) => e.orderId === order.id)
@@ -469,6 +496,11 @@ function OrderDetail({ order, data, commit, notify }) {
                 {businessDate(e.at)} · {eventNames[e.type] ?? "Заказ изменён"}
               </summary>
               {e.reason && <p>{e.reason}</p>}
+              {e.type === "repair-loss" && (
+                <p className="red">
+                  {money(e.after.amount)} · {e.after.reason}
+                </p>
+              )}
               {e.before?.payments &&
                 e.after?.payments &&
                 (() => {
@@ -501,9 +533,9 @@ function OrderDetail({ order, data, commit, notify }) {
 function RepairDictionaries({ data, commit, notify }) {
   const [type, setType] = useState({ name: "" }),
     [material, setMaterial] = useState({ name: "", unit: "шт.", unitCost: "" });
-  const run = (fn, done) => {
+  const run = async (fn, done) => {
     try {
-      commit(fn);
+      await commit(fn);
       done?.();
     } catch (e) {
       notify(e.message);
@@ -682,6 +714,7 @@ export default function Repairs({ state, commit, notify }) {
     "received",
     "materials",
     "costs",
+    "losses",
     "profit",
   ];
   const csv =
@@ -690,11 +723,11 @@ export default function Repairs({ state, commit, notify }) {
     "\n" +
     filtered
       .map((x) => {
-        const totals = repairOrderTotals(x);
+        const totals = repairOrderTotals(x, data.repairLosses ?? []);
         return cols
           .map((k) =>
             safeCell(
-              ["received", "materials", "costs", "profit"].includes(k)
+              ["received", "materials", "costs", "losses", "profit"].includes(k)
                 ? totals[k]
                 : x[k],
             ),
@@ -709,6 +742,7 @@ export default function Repairs({ state, commit, notify }) {
           {[
             ["orders", "Заказы"],
             ["report", "Отчёт по ремонтам"],
+            ["losses", "Убытки"],
             ["dictionaries", "Справочники"],
           ].map(([key, label]) => (
             <button
@@ -726,6 +760,8 @@ export default function Repairs({ state, commit, notify }) {
       </div>
       {view === "report" ? (
         <RepairReport state={state} />
+      ) : view === "losses" ? (
+        <RepairLosses state={data} commit={commit} notify={notify} />
       ) : view === "dictionaries" ? (
         <RepairDictionaries data={data} commit={commit} notify={notify} />
       ) : (
@@ -745,11 +781,11 @@ export default function Repairs({ state, commit, notify }) {
             {showNew && (
               <form
                 aria-label="Новый заказ ремонта"
-                onSubmit={(e) => {
+                onSubmit={async (e) => {
                   e.preventDefault();
                   try {
                     let created;
-                    commit((s) => {
+                    await commit((s) => {
                       const next = createRepair(
                         s,
                         { ...form, repairTypeId: activeTypeId },
@@ -865,7 +901,7 @@ export default function Repairs({ state, commit, notify }) {
               )}
               <div className="repair-order-list">
                 {filtered.map((order) => {
-                  const t = repairOrderTotals(order);
+                  const t = repairOrderTotals(order, data.repairLosses ?? []);
                   return (
                     <button
                       className={
